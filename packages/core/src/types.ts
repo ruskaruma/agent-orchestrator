@@ -275,6 +275,28 @@ export interface Runtime {
 
   /** Get info needed to attach a human to this session (for Terminal plugin) */
   getAttachInfo?(handle: RuntimeHandle): Promise<AttachInfo>;
+
+  /**
+   * Subscribe to agent-events written by the agent during this session.
+   * Called by the lifecycle manager when a session is first seen; complements
+   * the polling loop for lower-latency event processing.
+   *
+   * @param handle  Runtime handle identifying the session.
+   * @param callback  Invoked with newly-seen events whenever the agent-events
+   *                  file changes.  May be called with an empty array when
+   *                  fs.watch fires spuriously — callers must handle that.
+   * @returns An unsubscribe function that closes the underlying watcher.
+   *
+   * Implementations must:
+   * - Catch all fs.watch errors internally and log them; never throw.
+   * - Return a no-op cleanup function when watching is unsupported or fails
+   *   to set up.
+   * - Not replace the polling loop — this is additive for lower latency.
+   */
+  watchEvents?(
+    handle: RuntimeHandle,
+    callback: (events: unknown[]) => void,
+  ): () => void;
 }
 
 export interface RuntimeCreateConfig {
@@ -282,6 +304,12 @@ export interface RuntimeCreateConfig {
   workspacePath: string;
   launchCommand: string;
   environment: Record<string, string>;
+  /**
+   * Optional: the agent plugin instance. When provided, the runtime can call
+   * agent.getProgrammaticCommand() and agent.createInjector() to use the
+   * agent's own protocol for message injection instead of hardcoded fallbacks.
+   */
+  agent?: Agent;
 }
 
 /** Opaque handle returned by runtime.create() */
@@ -393,6 +421,41 @@ export interface Agent {
    * `getActivityState` already reads richer data from the agent's own session files.
    */
   recordActivity?(session: Session, terminalOutput: string): Promise<void>;
+
+  /**
+   * Optional: Transform the launch command for programmatic (subprocess) mode.
+   * Called by runtimes that spawn agents as subprocesses (e.g. runtime-file).
+   * The agent plugin knows its own flags — not the runtime.
+   *
+   * Examples:
+   * - Claude Code: adds `-p --input-format stream-json --output-format stream-json --verbose`
+   * - Codex: swaps `codex --full-auto` → `codex app-server`
+   * - OpenCode/Aider: returns command unchanged
+   */
+  getProgrammaticCommand?(baseCommand: string): string;
+
+  /**
+   * Optional: Create a message injector for this agent's subprocess.
+   * Called after the subprocess is spawned. Return null for inbox-only agents.
+   * The injector's initialize() is called once at startup; send() on each message.
+   */
+  createInjector?(child: import("node:child_process").ChildProcess): MessageInjector | null;
+}
+
+/**
+ * Protocol-specific message injector for a subprocess agent.
+ * Returned by Agent.createInjector(). Each agent plugin implements its own protocol:
+ * - Claude Code: NdjsonInjector (writes stream-json NDJSON to stdin)
+ * - Codex: JsonRpcInjector (JSON-RPC turn/start via app-server sidecar)
+ * - Others: null (inbox-only, no active injection)
+ */
+export interface MessageInjector {
+  /** One-time initialization (handshake, session setup). Called after spawn. */
+  initialize(): Promise<void>;
+  /** Inject a message into the running agent process. */
+  send(message: string): Promise<void>;
+  /** Clean up resources (called on session destroy). */
+  close(): Promise<void>;
 }
 
 export interface AgentLaunchConfig {
