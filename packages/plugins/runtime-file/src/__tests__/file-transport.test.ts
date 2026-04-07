@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -167,7 +167,6 @@ describe("file-transport", () => {
       const files = resolveCommsFiles(tempDir, "int-1");
       createCommsFiles(files);
 
-      const { appendFileSync } = require("node:fs");
       appendFileSync(files.agentEvents, '{"v":1,"id":1,"epoch":1,"ts":"t","source":"agent","type":"status","message":"good"}\n');
       appendFileSync(files.agentEvents, "corrupt line here\n");
       appendFileSync(files.agentEvents, '{"v":1,"id":2,"epoch":1,"ts":"t","source":"agent","type":"status","message":"also good"}\n');
@@ -189,7 +188,6 @@ describe("file-transport", () => {
 
       // Truncate and write a short message (file size < old cursor)
       writeFileSync(files.agentEvents, "", "utf-8");
-      const { appendFileSync } = require("node:fs");
       appendFileSync(files.agentEvents, '{"v":1,"id":1,"epoch":1,"ts":"t","source":"agent","type":"status","message":"short"}\n');
 
       const { messages } = readNewMessages(files.agentEvents);

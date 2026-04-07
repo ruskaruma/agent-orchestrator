@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 /**
  * Bash hook scripts for the file-based communication protocol.
  * These are installed into .claude/settings.json by the agent plugin

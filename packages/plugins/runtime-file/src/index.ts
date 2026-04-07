@@ -29,7 +29,6 @@ import {
 } from "./file-transport.js";
 import {
   type InboxMessageType,
-  resolveInjectionMode,
   AGENT_EVENTS_FILE,
 } from "./message-types.js";
 import {
@@ -39,7 +38,7 @@ import {
   PROMPT_INBOX_CHECK_SCRIPT,
   FILE_TRACKER_SCRIPT,
 } from "./hooks.js";
-import { AO_EMIT_SCRIPT, installAoEmit } from "./ao-emit.js";
+import { installAoEmit } from "./ao-emit.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -470,6 +469,7 @@ export function create(): Runtime {
             throw new Error(
               `Agent process for session ${entry.sessionId} has exited. ` +
               `Message persisted in inbox but not delivered.`,
+              { cause: err },
             );
           }
           // Injector failed but process alive — inbox is the fallback.
@@ -580,7 +580,7 @@ export function create(): Runtime {
           // system-events, cursor files, heartbeat).
           if (filename !== null && filename !== AGENT_EVENTS_FILE) return;
 
-          let messages: unknown[] = [];
+          let messages: unknown[];
           try {
             const result = readNewMessages(agentEvents);
             messages = result.messages;

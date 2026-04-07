@@ -17,6 +17,7 @@ import { join } from "node:path";
 //   AO_AGENT_EPOCH        - epoch counter (defaults to 1)
 // ---------------------------------------------------------------------------
 
+/* eslint-disable no-useless-escape */
 export const AO_EMIT_SCRIPT = `#!/usr/bin/env bash
 # ao-emit: write an AgentEvent back to the orchestrator's agent-events file.
 # Usage: ao-emit <type> <message> [json_data]
@@ -119,6 +120,7 @@ printf '%s\\n' "\$JSON_LINE" >> "\$EVENTS_FILE"
 
 exit 0
 `;
+/* eslint-enable no-useless-escape */
 
 // ---------------------------------------------------------------------------
 // installAoEmit

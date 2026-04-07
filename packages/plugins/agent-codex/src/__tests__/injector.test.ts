@@ -16,6 +16,7 @@ vi.mock("node:fs", () => ({ createReadStream: vi.fn(), existsSync: vi.fn(() => f
 vi.mock("node:os", () => ({ homedir: vi.fn(() => "/mock/home") }));
 vi.mock("node:crypto", () => ({ randomUUID: vi.fn(() => "mock-uuid") }));
 vi.mock("@composio/ao-core", async () => {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports
   const actual = await vi.importActual<typeof import("@composio/ao-core")>("@composio/ao-core");
   return {
     ...actual,
@@ -36,6 +37,7 @@ vi.mock("@composio/ao-core", async () => {
 
 import { create } from "../index.js";
 import type { MessageInjector } from "@composio/ao-core";
+import type { ChildProcess } from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // Fake ChildProcess
@@ -98,21 +100,21 @@ describe("createInjector()", () => {
   it("returns null when stdin is missing", () => {
     const agent = create();
     const child = makeFakeChild();
-    const noStdin = { ...child, stdin: null } as unknown as import("node:child_process").ChildProcess;
+    const noStdin = { ...child, stdin: null } as unknown as ChildProcess;
     expect(agent.createInjector?.(noStdin)).toBeNull();
   });
 
   it("returns null when stdout is missing", () => {
     const agent = create();
     const child = makeFakeChild();
-    const noStdout = { ...child, stdout: null } as unknown as import("node:child_process").ChildProcess;
+    const noStdout = { ...child, stdout: null } as unknown as ChildProcess;
     expect(agent.createInjector?.(noStdout)).toBeNull();
   });
 
   it("returns a MessageInjector when both stdin and stdout exist", () => {
     const agent = create();
     const child = makeFakeChild();
-    const injector = agent.createInjector?.(child as unknown as import("node:child_process").ChildProcess);
+    const injector = agent.createInjector?.(child as unknown as ChildProcess);
     expect(injector).not.toBeNull();
     expect(typeof injector?.initialize).toBe("function");
     expect(typeof injector?.send).toBe("function");
@@ -124,7 +126,7 @@ describe("initialize()", () => {
   it("sends initialize, initialized notification, and thread/start in order", async () => {
     const agent = create();
     const child = makeFakeChild();
-    const injector = agent.createInjector?.(child as unknown as import("node:child_process").ChildProcess) as MessageInjector;
+    const injector = agent.createInjector?.(child as unknown as ChildProcess) as MessageInjector;
 
     // Respond to initialize (id:1) then thread/start (id:2)
     child.stdin.write = vi.fn((data: string, cb?: (err?: Error | null) => void) => {
@@ -155,7 +157,7 @@ describe("initialize()", () => {
   it("extracts threadId from result.id if result.threadId is absent", async () => {
     const agent = create();
     const child = makeFakeChild();
-    const injector = agent.createInjector?.(child as unknown as import("node:child_process").ChildProcess) as MessageInjector;
+    const injector = agent.createInjector?.(child as unknown as ChildProcess) as MessageInjector;
 
     child.stdin.write = vi.fn((data: string, cb?: (err?: Error | null) => void) => {
       if (cb) cb(null);
@@ -181,7 +183,7 @@ describe("send()", () => {
   async function makeInitializedInjector() {
     const agent = create();
     const child = makeFakeChild();
-    const injector = agent.createInjector?.(child as unknown as import("node:child_process").ChildProcess) as MessageInjector;
+    const injector = agent.createInjector?.(child as unknown as ChildProcess) as MessageInjector;
 
     child.stdin.write = vi.fn((data: string, cb?: (err?: Error | null) => void) => {
       if (cb) cb(null);
@@ -219,7 +221,7 @@ describe("send()", () => {
   it("throws if called before initialize()", async () => {
     const agent = create();
     const child = makeFakeChild();
-    const injector = agent.createInjector?.(child as unknown as import("node:child_process").ChildProcess) as MessageInjector;
+    const injector = agent.createInjector?.(child as unknown as ChildProcess) as MessageInjector;
 
     await expect(injector.send("hello")).rejects.toThrow(/not initialized/);
   });
@@ -253,7 +255,7 @@ describe("close()", () => {
   it("resolves without throwing", async () => {
     const agent = create();
     const child = makeFakeChild();
-    const injector = agent.createInjector?.(child as unknown as import("node:child_process").ChildProcess) as MessageInjector;
+    const injector = agent.createInjector?.(child as unknown as ChildProcess) as MessageInjector;
 
     await expect(injector.close()).resolves.toBeUndefined();
   });
@@ -261,7 +263,7 @@ describe("close()", () => {
   it("is safe to call multiple times", async () => {
     const agent = create();
     const child = makeFakeChild();
-    const injector = agent.createInjector?.(child as unknown as import("node:child_process").ChildProcess) as MessageInjector;
+    const injector = agent.createInjector?.(child as unknown as ChildProcess) as MessageInjector;
 
     await injector.close();
     await expect(injector.close()).resolves.toBeUndefined();

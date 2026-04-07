@@ -844,7 +844,7 @@ function createClaudeCodeAgent(): Agent {
       return baseCommand.replace(/\b(claude)\b/, "$1 -p --input-format stream-json --output-format stream-json --verbose");
     },
 
-    createInjector(child: import("node:child_process").ChildProcess): import("@composio/ao-core").MessageInjector | null {
+    createInjector(child: ChildProcess): MessageInjector | null {
       let sessionId = "default";
       child.stdout?.on("data", (data: Buffer) => {
         const text = data.toString("utf-8");

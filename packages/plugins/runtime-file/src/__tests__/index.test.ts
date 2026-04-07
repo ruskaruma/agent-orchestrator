@@ -7,7 +7,7 @@ import type { RuntimeHandle } from "@composio/ao-core";
 // ---------------------------------------------------------------------------
 const { mockSpawn, mockExecFile } = vi.hoisted(() => ({
   mockSpawn: vi.fn(),
-  mockExecFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb?: Function) => {
+  mockExecFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb?: (err: Error | null, result: { stdout: string; stderr: string }) => void) => {
     if (cb) cb(null, { stdout: "", stderr: "" });
   }),
 }));
@@ -18,14 +18,15 @@ vi.mock("node:child_process", () => ({
 }));
 
 vi.mock("node:util", async (importOriginal) => {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports
   const actual = await importOriginal<typeof import("node:util")>();
   return {
     ...actual,
-    promisify: (fn: Function) => {
+    promisify: (fn: (...args: unknown[]) => unknown) => {
       if (fn === mockExecFile) {
         return (...args: unknown[]) =>
           new Promise((resolve, reject) => {
-            (fn as Function)(...args, (err: Error | null, result: unknown) => {
+            fn(...args, (err: Error | null, result: unknown) => {
               if (err) reject(err);
               else resolve(result);
             });

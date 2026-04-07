@@ -641,13 +641,13 @@ function createCodexAgent(): Agent {
       await setupPathWrapperWorkspace(session.workspacePath);
     },
 
-    getProgrammaticCommand(baseCommand: string): string {
+    getProgrammaticCommand(_baseCommand: string): string {
       // Swap `codex [flags] [prompt]` → `codex app-server` for JSON-RPC mode.
       const binary = resolvedBinary ?? "codex";
       return `${shellEscape(binary)} app-server`;
     },
 
-    createInjector(child: import("node:child_process").ChildProcess): import("@composio/ao-core").MessageInjector | null {
+    createInjector(child: ChildProcess): MessageInjector | null {
       const stdin = child.stdin;
       const stdout = child.stdout;
       if (!stdin || !stdout) return null;

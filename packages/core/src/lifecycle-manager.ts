@@ -1209,8 +1209,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         (s) =>
           s.id !== session.id &&
           !TERMINAL_STATUSES.has(s.status) &&
-          s.workspacePath != null &&
-          s.branch != null,
+          s.workspacePath !== null &&
+          s.branch !== null,
       );
 
       if (siblings.length === 0) return;

@@ -475,7 +475,7 @@ function createOpenCodeAgent(): Agent {
       return baseCommand;
     },
 
-    createInjector(_child: import("node:child_process").ChildProcess): import("@composio/ao-core").MessageInjector | null {
+    createInjector(_child: ChildProcess): MessageInjector | null {
       return null;
     },
   };

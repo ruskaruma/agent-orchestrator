@@ -1,4 +1,5 @@
 import type { ObservabilityLevel } from "./observability.js";
+import type { ChildProcess } from "node:child_process";
 
 /**
  * Agent Orchestrator — Core Type Definitions
@@ -439,7 +440,7 @@ export interface Agent {
    * Called after the subprocess is spawned. Return null for inbox-only agents.
    * The injector's initialize() is called once at startup; send() on each message.
    */
-  createInjector?(child: import("node:child_process").ChildProcess): MessageInjector | null;
+  createInjector?(child: ChildProcess): MessageInjector | null;
 }
 
 /**
