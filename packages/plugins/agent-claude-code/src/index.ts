@@ -831,15 +831,58 @@ function createClaudeCodeAgent(): Agent {
     },
 
     async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
-      // Relative path so that symlinked .claude/ dirs across worktrees
-      // all produce the same settings.json (last writer doesn't clobber).
       await setupHookInWorkspace(workspacePath, ".claude/metadata-updater.sh");
     },
 
     async postLaunchSetup(session: Session): Promise<void> {
       if (!session.workspacePath) return;
-
       await setupHookInWorkspace(session.workspacePath, ".claude/metadata-updater.sh");
+    },
+
+    getProgrammaticCommand(baseCommand: string): string {
+      if (baseCommand.includes("--input-format")) return baseCommand;
+      return baseCommand.replace(/\b(claude)\b/, "$1 -p --input-format stream-json --output-format stream-json --verbose");
+    },
+
+    createInjector(child: import("node:child_process").ChildProcess): import("@composio/ao-core").MessageInjector | null {
+      let sessionId = "default";
+      child.stdout?.on("data", (data: Buffer) => {
+        const text = data.toString("utf-8");
+        for (const line of text.split("\n")) {
+          if (line.trim().startsWith("{")) {
+            try {
+              const parsed = JSON.parse(line) as Record<string, unknown>;
+              if (parsed.type === "system" && parsed.subtype === "init" && typeof parsed.session_id === "string") {
+                sessionId = parsed.session_id;
+              }
+            } catch { /* not JSON */ }
+          }
+        }
+      });
+      return {
+        async initialize() {},
+        async send(message: string) {
+          const stdin = child.stdin;
+          if (!stdin?.writable) return;
+          const ndjson = JSON.stringify({
+            type: "user",
+            message: { role: "user", content: message },
+            parent_tool_use_id: null,
+            session_id: sessionId,
+          });
+          await new Promise<void>((resolve, reject) => {
+            let done = false;
+            const finish = (err?: Error | null) => {
+              if (done) return;
+              done = true;
+              if (err) reject(err); else resolve();
+            };
+            stdin.once("error", finish);
+            stdin.write(ndjson + "\n", (err) => finish(err ?? null));
+          });
+        },
+        async close() {},
+      };
     },
   };
 }

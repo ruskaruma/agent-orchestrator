@@ -421,7 +421,22 @@ function createCodexAgent(): Agent {
 
       if (!session.workspacePath) return null;
 
-      // 1. Try Codex's native JSONL first — it has richer 6-state detection
+      const activeWindowMs = Math.min(DEFAULT_ACTIVE_WINDOW_MS, threshold);
+
+      // 1. Fast path: log file mtime (file runtime only).
+      const logPath = session.runtimeHandle?.data?.["logPath"] as string | undefined;
+      if (logPath) {
+        try {
+          const logStat = await stat(logPath);
+          const ageMs = Date.now() - logStat.mtimeMs;
+          if (ageMs < activeWindowMs) return { state: "active", timestamp: logStat.mtime };
+          if (ageMs < threshold) return { state: "ready", timestamp: logStat.mtime };
+        } catch {
+          // logPath unreadable — not file runtime, skip
+        }
+      }
+
+      // 2. Try Codex's native JSONL first — it has richer 6-state detection
       //    (approval_request, error, tool_call, etc.) that terminal parsing can't match.
       const sessionFile = await findCodexSessionFileCached(session.workspacePath);
       if (sessionFile) {
@@ -470,7 +485,6 @@ function createCodexAgent(): Agent {
 
       // 3. Fallback: use JSONL entry with age-based decay when native session file
       //    is missing or unparseable.
-      const activeWindowMs = Math.min(DEFAULT_ACTIVE_WINDOW_MS, threshold);
       const fallback = getActivityFallbackState(activityResult, activeWindowMs, threshold);
       if (fallback) return fallback;
 
@@ -479,7 +493,6 @@ function createCodexAgent(): Agent {
         try {
           const s = await stat(sessionFile);
           const ageMs = Date.now() - s.mtimeMs;
-          const activeWindowMs = Math.min(DEFAULT_ACTIVE_WINDOW_MS, threshold);
           if (ageMs <= activeWindowMs) return { state: "active", timestamp: s.mtime };
           if (ageMs <= threshold) return { state: "ready", timestamp: s.mtime };
           return { state: "idle", timestamp: s.mtime };
@@ -614,8 +627,6 @@ function createCodexAgent(): Agent {
     },
 
     async postLaunchSetup(session: Session): Promise<void> {
-      // Resolve binary path on first launch (cached for subsequent calls).
-      // Uses a promise guard to prevent concurrent calls from racing.
       if (!resolvedBinary) {
         if (!resolvingBinary) {
           resolvingBinary = resolveCodexBinary();
@@ -628,6 +639,70 @@ function createCodexAgent(): Agent {
       }
       if (!session.workspacePath) return;
       await setupPathWrapperWorkspace(session.workspacePath);
+    },
+
+    getProgrammaticCommand(baseCommand: string): string {
+      // Swap `codex [flags] [prompt]` → `codex app-server` for JSON-RPC mode.
+      const binary = resolvedBinary ?? "codex";
+      return `${shellEscape(binary)} app-server`;
+    },
+
+    createInjector(child: import("node:child_process").ChildProcess): import("@composio/ao-core").MessageInjector | null {
+      const stdin = child.stdin;
+      const stdout = child.stdout;
+      if (!stdin || !stdout) return null;
+
+      let requestId = 0;
+      let threadId: string | null = null;
+      const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+
+      const readline = createInterface({ input: stdout, crlfDelay: Infinity });
+      readline.on("line", (line: string) => {
+        if (!line.trim()) return;
+        try {
+          const msg = JSON.parse(line) as Record<string, unknown>;
+          const id = msg["id"] as number | undefined;
+          if (id !== undefined && pending.has(id)) {
+            const { resolve, reject } = pending.get(id)!;
+            pending.delete(id);
+            if (msg["error"]) reject(new Error(String((msg["error"] as Record<string, unknown>)["message"] ?? "JSON-RPC error")));
+            else resolve(msg["result"]);
+          }
+        } catch { /* non-JSON line */ }
+      });
+
+      function sendRpc(method: string, params: unknown): Promise<unknown> {
+        return new Promise((resolve, reject) => {
+          requestId += 1;
+          pending.set(requestId, { resolve, reject });
+          const req = JSON.stringify({ jsonrpc: "2.0", id: requestId, method, params }) + "\n";
+          stdin!.write(req, (err) => { if (err) { pending.delete(requestId); reject(err); } });
+        });
+      }
+
+      return {
+        async initialize() {
+          try {
+            await sendRpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "ao", version: "1" } });
+            stdin!.write(JSON.stringify({ jsonrpc: "2.0", method: "initialized", params: {} }) + "\n");
+            const result = await sendRpc("thread/start", { initialPrompt: "" }) as Record<string, unknown>;
+            threadId = (result["threadId"] ?? result["id"]) as string;
+          } catch (err) {
+            // Clean up readline on init failure to prevent resource leak.
+            readline.close();
+            pending.clear();
+            throw err;
+          }
+        },
+        async send(message: string) {
+          if (!threadId) throw new Error("Codex injector not initialized");
+          await sendRpc("turn/start", { threadId, input: [{ type: "text", text: message }] });
+        },
+        async close() {
+          readline.close();
+          pending.clear();
+        },
+      };
     },
   };
 }
