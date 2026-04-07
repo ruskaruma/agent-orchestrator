@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import tmuxPlugin from "@aoagents/ao-plugin-runtime-tmux";
 import type { RuntimeHandle } from "@aoagents/ao-core";
 import { isTmuxAvailable, killSessionsByPrefix } from "./helpers/tmux.js";
-import { sleep } from "./helpers/polling.js";
 
 const tmuxOk = await isTmuxAvailable();
 const SESSION_PREFIX = "ao-inttest-tmux-";
