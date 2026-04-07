@@ -92,33 +92,3 @@ export const HEARTBEAT_FILE = "heartbeat";
 /** Suffix appended to a communication file to form its cursor path. */
 export const CURSOR_SUFFIX = ".cursor";
 
-// ---------------------------------------------------------------------------
-// Agent injection modes
-// ---------------------------------------------------------------------------
-
-/**
- * How messages get injected into an agent's context after being written to
- * the inbox file. The inbox write is universal; the injection is per-agent.
- */
-export type AgentInjectionMode =
-  /** Claude Code: subprocess with stream-json stdin NDJSON */
-  | "subprocess"
-  /** Codex: app-server JSON-RPC sidecar (turn/start) */
-  | "jsonrpc"
-  /** OpenCode, Aider, unknown: inbox file only, inner runtime fallback */
-  | "inbox-only";
-
-/**
- * Resolve the injection mode for an agent based on its name.
- * Falls back to "inbox-only" for unknown agents.
- */
-export function resolveInjectionMode(agentName: string): AgentInjectionMode {
-  switch (agentName) {
-    case "claude-code":
-      return "subprocess";
-    case "codex":
-      return "jsonrpc";
-    default:
-      return "inbox-only";
-  }
-}

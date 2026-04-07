@@ -841,7 +841,7 @@ function createClaudeCodeAgent(): Agent {
 
     getProgrammaticCommand(baseCommand: string): string {
       if (baseCommand.includes("--input-format")) return baseCommand;
-      return baseCommand.replace(/\b(claude)\b/, "$1 -p --input-format stream-json --output-format stream-json --verbose");
+      return baseCommand.replace(/((?:^|\s)(?:[^\s]*\/)?)claude(\s|$)/, "$1claude -p --input-format stream-json --output-format stream-json --verbose$2");
     },
 
     createInjector(child: ChildProcess): MessageInjector | null {
@@ -875,6 +875,7 @@ function createClaudeCodeAgent(): Agent {
             const finish = (err?: Error | null) => {
               if (done) return;
               done = true;
+              stdin.removeListener("error", finish);
               if (err) reject(err); else resolve();
             };
             stdin.once("error", finish);

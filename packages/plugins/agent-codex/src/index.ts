@@ -674,9 +674,10 @@ function createCodexAgent(): Agent {
       function sendRpc(method: string, params: unknown): Promise<unknown> {
         return new Promise((resolve, reject) => {
           requestId += 1;
-          pending.set(requestId, { resolve, reject });
-          const req = JSON.stringify({ jsonrpc: "2.0", id: requestId, method, params }) + "\n";
-          stdin!.write(req, (err) => { if (err) { pending.delete(requestId); reject(err); } });
+          const capturedId = requestId;
+          pending.set(capturedId, { resolve, reject });
+          const req = JSON.stringify({ jsonrpc: "2.0", id: capturedId, method, params }) + "\n";
+          stdin!.write(req, (err) => { if (err) { pending.delete(capturedId); reject(err); } });
         });
       }
 

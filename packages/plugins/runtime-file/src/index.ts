@@ -3,16 +3,7 @@ import { promisify } from "node:util";
 import { createWriteStream, existsSync, mkdirSync, type WriteStream } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type {
-  Runtime,
-  RuntimeCreateConfig,
-  RuntimeHandle,
-  RuntimeMetrics,
-  AttachInfo,
-  MessageInjector,
-  PluginModule,
-  PluginManifest,
-} from "@composio/ao-core";
+import { shellEscape, type Runtime, type RuntimeCreateConfig, type RuntimeHandle, type RuntimeMetrics, type AttachInfo, type MessageInjector, type PluginModule, type PluginManifest } from "@composio/ao-core";
 import {
   resolveCommsFiles,
   createCommsFiles,
@@ -169,7 +160,7 @@ async function createCompanionTmux(
         "new-session", "-d",
         "-s", sessionName,
         "-c", workspacePath,
-        `tail -f ${logPath}`,
+        `tail -f ${shellEscape(logPath)}`,
       ],
       { timeout: TMUX_CMD_TIMEOUT_MS },
     );
@@ -276,8 +267,8 @@ export function create(): Runtime {
       if (!config.agent?.getProgrammaticCommand && isClaudeCode &&
           launchCommand.includes("claude") && !launchCommand.includes("--input-format")) {
         launchCommand = launchCommand.replace(
-          /\b(claude)\b/,
-          "$1 -p --input-format stream-json --output-format stream-json --verbose",
+          /((?:^|\s)(?:[^\s]*\/)?)claude(\s|$)/,
+          "$1claude -p --input-format stream-json --output-format stream-json --verbose$2",
         );
       }
 
