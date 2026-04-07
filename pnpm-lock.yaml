@@ -453,6 +453,9 @@ importers:
       '@aoagents/ao-core':
         specifier: workspace:*
         version: link:../../core
+      '@composio/ao-plugin-runtime-file':
+        specifier: workspace:*
+        version: link:../runtime-file
     devDependencies:
       '@types/node':
         specifier: ^25.2.3

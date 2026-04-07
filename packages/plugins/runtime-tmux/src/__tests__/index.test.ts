@@ -17,12 +17,48 @@ vi.mock("node:crypto", () => ({
   randomUUID: () => "test-uuid-1234",
 }));
 
-// Mock node:fs for writeFileSync / unlinkSync / appendFileSync / mkdirSync
 vi.mock("node:fs", () => ({
   writeFileSync: vi.fn(),
   unlinkSync: vi.fn(),
   appendFileSync: vi.fn(),
   mkdirSync: vi.fn(),
+  existsSync: vi.fn(() => false),
+  chmodSync: vi.fn(),
+  utimesSync: vi.fn(),
+  readFileSync: vi.fn(() => ""),
+  closeSync: vi.fn(),
+  openSync: vi.fn(() => 0),
+}));
+
+const {
+  mockResolveCommsFiles,
+  mockCreateCommsFiles,
+  mockAppendInboxMessage,
+  mockGenerateDedupKey,
+  mockInstallCommsHooks,
+  mockInstallAoEmit,
+} = vi.hoisted(() => ({
+  mockResolveCommsFiles: vi.fn((sessionsDir: string, sessionId: string) => ({
+    dir: `${sessionsDir}/${sessionId}/comms`,
+    inbox: `${sessionsDir}/${sessionId}/comms/inbox`,
+    agentEvents: `${sessionsDir}/${sessionId}/comms/agent-events`,
+    systemEvents: `${sessionsDir}/${sessionId}/comms/system-events`,
+    heartbeat: `${sessionsDir}/${sessionId}/comms/heartbeat`,
+  })),
+  mockCreateCommsFiles: vi.fn(),
+  mockAppendInboxMessage: vi.fn(),
+  mockGenerateDedupKey: vi.fn(() => "test-dedup-1"),
+  mockInstallCommsHooks: vi.fn(async () => {}),
+  mockInstallAoEmit: vi.fn(async () => {}),
+}));
+
+vi.mock("@composio/ao-plugin-runtime-file", () => ({
+  resolveCommsFiles: mockResolveCommsFiles,
+  createCommsFiles: mockCreateCommsFiles,
+  appendInboxMessage: mockAppendInboxMessage,
+  generateDedupKey: mockGenerateDedupKey,
+  installCommsHooks: mockInstallCommsHooks,
+  installAoEmit: mockInstallAoEmit,
 }));
 
 // Get reference to the promisify-custom mock — this is what the plugin actually calls
@@ -41,7 +77,6 @@ function mockTmuxError(message: string) {
   mockExecFileCustom.mockRejectedValueOnce(new Error(message));
 }
 
-/** Create a RuntimeHandle for testing. */
 function makeHandle(id: string, createdAt?: number): RuntimeHandle {
   return {
     id,
@@ -49,6 +84,10 @@ function makeHandle(id: string, createdAt?: number): RuntimeHandle {
     data: {
       createdAt: createdAt ?? 1000,
       workspacePath: "/tmp/workspace",
+      sessionsDir: "/tmp/sessions",
+      sessionId: id,
+      inboxPath: `/tmp/sessions/${id}/comms/inbox`,
+      agentEventsPath: `/tmp/sessions/${id}/comms/agent-events`,
     },
   };
 }
@@ -307,62 +346,59 @@ describe("runtime.destroy()", () => {
 });
 
 describe("runtime.sendMessage()", () => {
-  it("writes message to inbox JSONL file (zero tmux send-keys)", async () => {
+  it("appends message to inbox via runtime-file appendInboxMessage", async () => {
     const runtime = create();
     const handle = makeHandle("msg-test");
 
     await runtime.sendMessage(handle, "hello world");
 
-    // Should NOT call any tmux command for message delivery
     expect(mockExecFileCustom).not.toHaveBeenCalled();
-
-    // Should create .ao directory
-    expect(fs.mkdirSync).toHaveBeenCalledWith(
-      "/tmp/workspace/.ao",
-      { recursive: true },
-    );
-
-    // Should append JSONL entry to inbox
-    expect(fs.appendFileSync).toHaveBeenCalledWith(
-      "/tmp/workspace/.ao/inbox.jsonl",
-      expect.stringContaining('"message":"hello world"'),
-      "utf-8",
+    expect(mockAppendInboxMessage).toHaveBeenCalledWith(
+      "/tmp/sessions/msg-test/comms/inbox",
+      "msg-test",
+      0,
+      "instruction",
+      "hello world",
+      "test-dedup-1",
     );
   });
 
-  it("writes long messages to inbox without tmux load-buffer", async () => {
+  it("appends long messages without any tmux call", async () => {
     const runtime = create();
     const handle = makeHandle("msg-long");
     const longText = "x".repeat(250);
 
     await runtime.sendMessage(handle, longText);
 
-    // Zero tmux calls — no send-keys, no load-buffer, no paste-buffer
     expect(mockExecFileCustom).not.toHaveBeenCalled();
-
-    // Inbox write with the full message
-    expect(fs.appendFileSync).toHaveBeenCalledWith(
-      "/tmp/workspace/.ao/inbox.jsonl",
-      expect.stringContaining(longText),
-      "utf-8",
+    expect(mockAppendInboxMessage).toHaveBeenCalledWith(
+      "/tmp/sessions/msg-long/comms/inbox",
+      "msg-long",
+      0,
+      "instruction",
+      longText,
+      "test-dedup-1",
     );
   });
 
-  it("writes multiline messages to inbox", async () => {
+  it("appends multiline messages", async () => {
     const runtime = create();
     const handle = makeHandle("msg-multi");
 
     await runtime.sendMessage(handle, "line1\nline2\nline3");
 
     expect(mockExecFileCustom).not.toHaveBeenCalled();
-    expect(fs.appendFileSync).toHaveBeenCalledWith(
-      "/tmp/workspace/.ao/inbox.jsonl",
-      expect.stringContaining("line1\\nline2\\nline3"),
-      "utf-8",
+    expect(mockAppendInboxMessage).toHaveBeenCalledWith(
+      "/tmp/sessions/msg-multi/comms/inbox",
+      "msg-multi",
+      0,
+      "instruction",
+      "line1\nline2\nline3",
+      "test-dedup-1",
     );
   });
 
-  it("throws when handle has no workspacePath", async () => {
+  it("throws when handle is missing sessionsDir/sessionId", async () => {
     const runtime = create();
     const handle: RuntimeHandle = {
       id: "no-ws",
@@ -370,7 +406,62 @@ describe("runtime.sendMessage()", () => {
       data: { createdAt: 1000 },
     };
 
-    await expect(runtime.sendMessage(handle, "hello")).rejects.toThrow("no workspacePath");
+    await expect(runtime.sendMessage(handle, "hello")).rejects.toThrow(
+      "missing sessionsDir/sessionId",
+    );
+  });
+});
+
+describe("runtime.create() comms setup", () => {
+  it("installs hooks for claude-code agent and ao-emit for all", async () => {
+    const runtime = create();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "comms-test",
+      workspacePath: "/tmp/ws",
+      launchCommand: "claude",
+      environment: { AO_DATA_DIR: "/tmp/sessions", AO_AGENT_NAME: "claude-code" },
+    });
+
+    expect(mockResolveCommsFiles).toHaveBeenCalledWith("/tmp/sessions", "comms-test");
+    expect(mockCreateCommsFiles).toHaveBeenCalled();
+    expect(mockInstallCommsHooks).toHaveBeenCalledWith("/tmp/ws");
+    expect(mockInstallAoEmit).toHaveBeenCalledWith("/tmp/ws");
+  });
+
+  it("skips claude hooks for non-claude agents but still installs ao-emit", async () => {
+    const runtime = create();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "aider-test",
+      workspacePath: "/tmp/ws",
+      launchCommand: "aider",
+      environment: { AO_DATA_DIR: "/tmp/sessions", AO_AGENT_NAME: "aider" },
+    });
+
+    expect(mockInstallCommsHooks).not.toHaveBeenCalled();
+    expect(mockInstallAoEmit).toHaveBeenCalledWith("/tmp/ws");
+  });
+
+  it("propagates AO_INBOX_PATH and AO_AGENT_EVENTS_PATH into tmux env", async () => {
+    const runtime = create();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "env-prop",
+      workspacePath: "/tmp/ws",
+      launchCommand: "claude",
+      environment: { AO_DATA_DIR: "/tmp/sessions", AO_AGENT_NAME: "claude-code" },
+    });
+
+    const newSessionArgs = mockExecFileCustom.mock.calls[0]?.[1] as string[];
+    expect(newSessionArgs).toContain("AO_INBOX_PATH=/tmp/sessions/env-prop/comms/inbox");
+    expect(newSessionArgs).toContain("AO_AGENT_EVENTS_PATH=/tmp/sessions/env-prop/comms/agent-events");
   });
 });
 

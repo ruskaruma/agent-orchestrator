@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -14,6 +14,14 @@ import {
   type AttachInfo,
   shellEscape,
 } from "@aoagents/ao-core";
+import {
+  resolveCommsFiles,
+  createCommsFiles,
+  appendInboxMessage,
+  generateDedupKey,
+  setupComms,
+  type SessionCommsFiles,
+} from "@aoagents/ao-plugin-runtime-file";
 
 const execFileAsync = promisify(execFile);
 const TMUX_COMMAND_TIMEOUT_MS = 5_000;
@@ -25,7 +33,6 @@ export const manifest = {
   version: "0.1.0",
 };
 
-/** Only allow safe characters in session IDs */
 const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]+$/;
 
 function assertValidSessionId(id: string): void {
@@ -41,12 +48,43 @@ function writeLaunchScript(command: string): string {
   return `bash ${shellEscape(scriptPath)}`;
 }
 
-/** Run a tmux command and return stdout */
 async function tmux(...args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("tmux", args, {
     timeout: TMUX_COMMAND_TIMEOUT_MS,
   });
   return stdout.trimEnd();
+}
+
+async function setupCommsForSession(
+  workspacePath: string,
+  sessionsDir: string,
+  sessionId: string,
+  agentName: string,
+): Promise<SessionCommsFiles> {
+  const files = resolveCommsFiles(sessionsDir, sessionId);
+  createCommsFiles(files);
+
+  if (agentName === "claude-code") {
+    try {
+      await installCommsHooks(workspacePath);
+    } catch (err) {
+      console.warn(
+        `[runtime-tmux] Failed to install comms hooks:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  try {
+    await installAoEmit(workspacePath);
+  } catch (err) {
+    console.warn(
+      `[runtime-tmux] Failed to install ao-emit script:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  return files;
 }
 
 export function create(): Runtime {
@@ -57,18 +95,33 @@ export function create(): Runtime {
       assertValidSessionId(config.sessionId);
       const sessionName = config.sessionId;
 
-      // Build environment flags: -e KEY=VALUE for each env var
+      const env = config.environment ?? {};
+      const sessionsDir = env["AO_DATA_DIR"] ?? "";
+      const agentName = env["AO_AGENT_NAME"] ?? "";
+
+      let files: SessionCommsFiles | null = null;
+      if (sessionsDir) {
+        files = await setupCommsForSession(
+          config.workspacePath,
+          sessionsDir,
+          config.sessionId,
+          agentName,
+        );
+      }
+
+      const tmuxEnv: Record<string, string> = { ...env };
+      if (files) {
+        tmuxEnv["AO_INBOX_PATH"] = files.inbox;
+        tmuxEnv["AO_AGENT_EVENTS_PATH"] = files.agentEvents;
+      }
+
       const envArgs: string[] = [];
-      for (const [key, value] of Object.entries(config.environment ?? {})) {
+      for (const [key, value] of Object.entries(tmuxEnv)) {
         envArgs.push("-e", `${key}=${value}`);
       }
 
-      // Create tmux session in detached mode
       await tmux("new-session", "-d", "-s", sessionName, "-c", config.workspacePath, ...envArgs);
 
-      // Send the launch command — clean up the session if this fails.
-      // Use a temp script for long commands so the pane shows a short
-      // invocation instead of a pasted wall of shell.
       try {
         if (config.launchCommand.length > 200) {
           const invocation = writeLaunchScript(config.launchCommand);
@@ -82,7 +135,7 @@ export function create(): Runtime {
         try {
           await tmux("kill-session", "-t", sessionName);
         } catch {
-          // Best-effort cleanup
+          // best-effort cleanup
         }
         const msg = err instanceof Error ? err.message : String(err);
         throw new Error(`Failed to send launch command to session "${sessionName}": ${msg}`, {
@@ -96,6 +149,10 @@ export function create(): Runtime {
         data: {
           createdAt: Date.now(),
           workspacePath: config.workspacePath,
+          sessionsDir,
+          sessionId: config.sessionId,
+          inboxPath: files?.inbox ?? "",
+          agentEventsPath: files?.agentEvents ?? "",
         },
       };
     },
@@ -104,34 +161,21 @@ export function create(): Runtime {
       try {
         await tmux("kill-session", "-t", handle.id);
       } catch {
-        // Session may already be dead — that's fine
+        // session may already be dead
       }
     },
 
     async sendMessage(handle: RuntimeHandle, message: string): Promise<void> {
-      // File-based message delivery: write to inbox JSONL in the workspace.
-      // Zero tmux send-keys in the communication path.
-      // The agent picks up messages via hooks (Claude Code) or polling.
-      const workspacePath = handle.data["workspacePath"] as string | undefined;
-      if (!workspacePath) {
+      const sessionsDir = handle.data["sessionsDir"] as string | undefined;
+      const sessionId = handle.data["sessionId"] as string | undefined;
+      if (!sessionsDir || !sessionId) {
         throw new Error(
-          `Cannot send message to session "${handle.id}": no workspacePath in runtime handle`,
+          `Cannot send message to session "${handle.id}": missing sessionsDir/sessionId in runtime handle`,
         );
       }
 
-      const inboxDir = join(workspacePath, ".ao");
-      mkdirSync(inboxDir, { recursive: true });
-      const inboxPath = join(inboxDir, "inbox.jsonl");
-
-      const entry = JSON.stringify({
-        ts: Date.now(),
-        type: "instruction",
-        message,
-        dedupKey: randomUUID(),
-      });
-
-      // O_APPEND atomic write (<4KB on ext4/APFS) — same guarantee as runtime-file.
-      appendFileSync(inboxPath, entry + "\n", "utf-8");
+      const files = resolveCommsFiles(sessionsDir, sessionId);
+      appendInboxMessage(files.inbox, sessionId, 0, "instruction", message, generateDedupKey());
     },
 
     async getOutput(handle: RuntimeHandle, lines = 50): Promise<string> {
@@ -152,7 +196,7 @@ export function create(): Runtime {
     },
 
     async getMetrics(handle: RuntimeHandle): Promise<RuntimeMetrics> {
-      const createdAt = (handle.data.createdAt as number) ?? Date.now();
+      const createdAt = (handle.data["createdAt"] as number) ?? Date.now();
       return {
         uptimeMs: Date.now() - createdAt,
       };
