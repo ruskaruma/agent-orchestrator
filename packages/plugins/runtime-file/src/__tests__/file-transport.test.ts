@@ -9,13 +9,10 @@ import {
   appendMessage,
   appendInboxMessage,
   readNewMessages,
-  readAllMessages,
-  touchFile,
-  getHeartbeatTime,
+
   readEpoch,
   writeEpoch,
   generateDedupKey,
-  _resetForTesting,
 } from "../file-transport.js";
 
 describe("file-transport", () => {
@@ -23,7 +20,6 @@ describe("file-transport", () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "ao-file-transport-"));
-    _resetForTesting();
   });
 
   afterEach(() => {
@@ -37,7 +33,6 @@ describe("file-transport", () => {
       expect(files.inbox).toBe(join(tempDir, "int-1", "comms", "inbox"));
       expect(files.agentEvents).toBe(join(tempDir, "int-1", "comms", "agent-events"));
       expect(files.systemEvents).toBe(join(tempDir, "int-1", "comms", "system-events"));
-      expect(files.heartbeat).toBe(join(tempDir, "int-1", "comms", "heartbeat"));
     });
   });
 
@@ -49,7 +44,6 @@ describe("file-transport", () => {
       expect(existsSync(files.inbox)).toBe(true);
       expect(existsSync(files.agentEvents)).toBe(true);
       expect(existsSync(files.systemEvents)).toBe(true);
-      expect(existsSync(files.heartbeat)).toBe(true);
     });
 
     it("is idempotent", () => {
@@ -92,8 +86,9 @@ describe("file-transport", () => {
       appendMessage(files.agentEvents, "int-1", 1, "agent", "status", "msg2");
 
       const lines = readFileSync(files.agentEvents, "utf-8").trim().split("\n");
-      expect(JSON.parse(lines[0]).id).toBe(1);
-      expect(JSON.parse(lines[1]).id).toBe(2);
+      const id1 = JSON.parse(lines[0]).id as number;
+      const id2 = JSON.parse(lines[1]).id as number;
+      expect(id2).toBe(id1 + 1);
     });
 
     it("throws if message exceeds 4KB", () => {
@@ -103,7 +98,7 @@ describe("file-transport", () => {
       const longMessage = "x".repeat(5000);
       expect(() =>
         appendMessage(files.agentEvents, "int-1", 1, "agent", "status", longMessage),
-      ).toThrow("4KB safety limit");
+      ).toThrow("4KB limit");
     });
   });
 
@@ -193,36 +188,6 @@ describe("file-transport", () => {
       const { messages } = readNewMessages(files.agentEvents);
       expect(messages).toHaveLength(1);
       expect(messages[0].message).toBe("short");
-    });
-  });
-
-  describe("readAllMessages", () => {
-    it("reads all messages ignoring cursor", () => {
-      const files = resolveCommsFiles(tempDir, "int-1");
-      createCommsFiles(files);
-
-      appendMessage(files.agentEvents, "int-1", 1, "agent", "status", "msg1");
-      appendMessage(files.agentEvents, "int-1", 1, "agent", "status", "msg2");
-      readNewMessages(files.agentEvents); // advance cursor
-
-      const all = readAllMessages(files.agentEvents);
-      expect(all).toHaveLength(2);
-    });
-  });
-
-  describe("heartbeat", () => {
-    it("creates and reads heartbeat file", () => {
-      const files = resolveCommsFiles(tempDir, "int-1");
-      createCommsFiles(files);
-
-      touchFile(files.heartbeat);
-      const time = getHeartbeatTime(files.heartbeat);
-      expect(time).toBeInstanceOf(Date);
-    });
-
-    it("returns null for missing heartbeat", () => {
-      const time = getHeartbeatTime(join(tempDir, "nonexistent"));
-      expect(time).toBeNull();
     });
   });
 

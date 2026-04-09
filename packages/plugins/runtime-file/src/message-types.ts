@@ -87,8 +87,6 @@ export type ProtocolMessage = InboxMessage | AgentEvent | SystemEvent;
 export const INBOX_FILE = "inbox";
 export const AGENT_EVENTS_FILE = "agent-events";
 export const SYSTEM_EVENTS_FILE = "system-events";
-export const HEARTBEAT_FILE = "heartbeat";
-
 /** Suffix appended to a communication file to form its cursor path. */
 export const CURSOR_SUFFIX = ".cursor";
 

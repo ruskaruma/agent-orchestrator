@@ -20,7 +20,7 @@ export {
   readEpoch,
   writeEpoch,
   generateDedupKey,
-  initCounters,
+
   readNewMessages,
   watchDirectory,
   type SessionCommsFiles,
