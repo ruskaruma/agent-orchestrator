@@ -2,84 +2,40 @@
 
 export const INBOX_READER_SCRIPT = `#!/usr/bin/env bash
 set -euo pipefail
-
 INBOX_FILE="\${AO_INBOX_PATH:-}"
-if [[ -z "$INBOX_FILE" || ! -f "$INBOX_FILE" ]]; then
-  echo '{}'
-  exit 0
-fi
-
+[[ -z "$INBOX_FILE" || ! -f "$INBOX_FILE" ]] && { echo '{}'; exit 0; }
 CURSOR_FILE="\${INBOX_FILE}.hook-cursor"
 
-# Read cursor (byte offset). Default: current file size on first run
-# so we only see messages written AFTER the agent started.
 cursor=0
 if [[ -f "$CURSOR_FILE" ]]; then
   cursor=$(cat "$CURSOR_FILE" 2>/dev/null || echo 0)
-  if ! [[ "$cursor" =~ ^[0-9]+$ ]]; then
-    cursor=0
-  fi
+  [[ "$cursor" =~ ^[0-9]+$ ]] || cursor=0
 else
-  # First run: set cursor to current file size (skip existing messages)
   cursor=$(stat -f%z "$INBOX_FILE" 2>/dev/null || stat -c%s "$INBOX_FILE" 2>/dev/null || wc -c < "$INBOX_FILE" 2>/dev/null || echo 0)
-  echo "$cursor" > "$CURSOR_FILE"
-  echo '{}'
-  exit 0
+  echo "$cursor" > "$CURSOR_FILE"; echo '{}'; exit 0
 fi
 
-# Get current file size (macOS + Linux compatible)
 file_size=$(stat -f%z "$INBOX_FILE" 2>/dev/null || stat -c%s "$INBOX_FILE" 2>/dev/null || wc -c < "$INBOX_FILE" 2>/dev/null || echo 0)
+[[ "$file_size" -lt "$cursor" ]] && cursor=0
+[[ "$file_size" -le "$cursor" ]] && { echo '{}'; exit 0; }
 
-# Handle file truncation
-if [[ "$file_size" -lt "$cursor" ]]; then
-  cursor=0
-fi
-
-# Nothing new
-if [[ "$file_size" -le "$cursor" ]]; then
-  echo '{}'
-  exit 0
-fi
-
-# Read only new bytes (tail -c + is 1-indexed)
 new_bytes=$(tail -c +$(( cursor + 1 )) "$INBOX_FILE" 2>/dev/null || echo "")
+[[ -z "$new_bytes" ]] && { echo '{}'; exit 0; }
 
-if [[ -z "$new_bytes" ]]; then
-  echo '{}'
-  exit 0
-fi
-
-# Truncate to stay under 9500 chars (below 10K additionalContext cap).
-# Only advance cursor by the bytes we actually output, so truncated
-# messages are re-read on the next hook invocation.
-# IMPORTANT: truncate at the last complete newline so we never split
-# a JSONL line mid-way. If a single line exceeds 9500 chars, deliver
-# it anyway to avoid getting stuck.
-# Use byte length (wc -c), not char length, since cursor tracks bytes.
 delivered_size=$file_size
 if [[ \${#new_bytes} -gt 9500 ]]; then
-  # Find last newline within first 9500 chars
   head_chunk="\${new_bytes:0:9500}"
-  # Strip everything after the last newline to get complete lines only
   complete_lines="\${head_chunk%\$'\\n'*}"
   if [[ "$complete_lines" == "$head_chunk" || -z "$complete_lines" ]]; then
-    # No newline found within 9500 chars — single oversized message.
-    # Deliver the whole first line to avoid getting stuck.
-    first_line="\${new_bytes%%\$'\\n'*}"
-    new_bytes="$first_line"
+    new_bytes="\${new_bytes%%\$'\\n'*}"
   else
-    # Deliver only complete lines (include the trailing newline)
     new_bytes="$complete_lines
 "
   fi
-  truncated_byte_len=$(printf '%s' "$new_bytes" | wc -c | tr -d ' ')
-  delivered_size=$(( cursor + truncated_byte_len ))
+  delivered_size=$(( cursor + $(printf '%s' "$new_bytes" | wc -c | tr -d ' ') ))
 fi
 
-# Update cursor to the bytes actually delivered
 echo "$delivered_size" > "$CURSOR_FILE"
-
-# Output as additionalContext JSON
 if command -v jq &>/dev/null; then
   escaped=$(echo "$new_bytes" | jq -Rs '.')
   echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"PostToolUse\\",\\"additionalContext\\":$escaped}}"
@@ -87,91 +43,43 @@ else
   escaped=$(echo "$new_bytes" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g' | tr '\\n' ' ')
   echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"PostToolUse\\",\\"additionalContext\\":\\"$escaped\\"}}"
 fi
-exit 0
 `;
 
 export const STOP_INBOX_CHECK_SCRIPT = `#!/usr/bin/env bash
 set -euo pipefail
-
 INBOX_FILE="\${AO_INBOX_PATH:-}"
-if [[ -z "$INBOX_FILE" || ! -f "$INBOX_FILE" ]]; then
-  exit 0
-fi
-
+[[ -z "$INBOX_FILE" || ! -f "$INBOX_FILE" ]] && exit 0
 CURSOR_FILE="\${INBOX_FILE}.hook-cursor"
 BLOCK_COUNT_FILE="\${INBOX_FILE}.stop-blocks"
 
-# Read cursor
 cursor=0
 if [[ -f "$CURSOR_FILE" ]]; then
   cursor=$(cat "$CURSOR_FILE" 2>/dev/null || echo 0)
-  if ! [[ "$cursor" =~ ^[0-9]+$ ]]; then
-    cursor=0
-  fi
+  [[ "$cursor" =~ ^[0-9]+$ ]] || cursor=0
 fi
 
-# Get file size (macOS + Linux compatible)
 file_size=$(stat -f%z "$INBOX_FILE" 2>/dev/null || stat -c%s "$INBOX_FILE" 2>/dev/null || wc -c < "$INBOX_FILE" 2>/dev/null || echo 0)
+[[ "$file_size" -le "$cursor" ]] && { rm -f "$BLOCK_COUNT_FILE" 2>/dev/null || true; exit 0; }
 
-# No unread messages: allow stop, reset block counter
-if [[ "$file_size" -le "$cursor" ]]; then
-  rm -f "$BLOCK_COUNT_FILE" 2>/dev/null || true
-  exit 0
-fi
-
-# Safety valve: after 5 consecutive blocks, give up
 block_count=0
-if [[ -f "$BLOCK_COUNT_FILE" ]]; then
-  block_count=$(cat "$BLOCK_COUNT_FILE" 2>/dev/null || echo 0)
-fi
+[[ -f "$BLOCK_COUNT_FILE" ]] && block_count=$(cat "$BLOCK_COUNT_FILE" 2>/dev/null || echo 0)
 block_count=$(( block_count + 1 ))
 echo "$block_count" > "$BLOCK_COUNT_FILE"
+[[ "$block_count" -ge 5 ]] && { rm -f "$BLOCK_COUNT_FILE" 2>/dev/null || true; exit 0; }
 
-if [[ "$block_count" -ge 5 ]]; then
-  rm -f "$BLOCK_COUNT_FILE" 2>/dev/null || true
-  exit 0
-fi
-
-# Block the stop: unread messages exist
-unread_bytes=$(( file_size - cursor ))
-echo "You have unread messages ($unread_bytes bytes) in your inbox at $INBOX_FILE. Read the file and process the messages before stopping." >&2
+echo "You have unread messages ($(( file_size - cursor )) bytes) in your inbox at $INBOX_FILE. Read and process them before stopping." >&2
 exit 2
 `;
 
-
 export const FILE_TRACKER_SCRIPT = `#!/usr/bin/env bash
 set -euo pipefail
-
-# Extract file path from tool input JSON (stdin from Claude Code hook).
-# Claude Code passes the tool input as JSON on stdin for PostToolUse hooks.
 input=$(cat 2>/dev/null || echo "{}")
-
 FILE=""
-if command -v jq &>/dev/null; then
-  FILE=$(echo "$input" | jq -r '.tool_input.path // .tool_input.file_path // empty' 2>/dev/null || echo "")
-fi
-
-if [[ -z "$FILE" ]]; then
-  exit 0
-fi
-
-# Normalize to a path RELATIVE to the worktree root so two sessions touching
-# the same source file (e.g. src/auth.ts) produce identical strings — required
-# for the rebase coordinator's Set-based overlap detection. Absolute paths
-# inside the workspace are stripped; absolute paths outside are kept verbatim
-# (they intentionally won't match other worktrees).
-if [[ "$FILE" = /* ]]; then
-  case "$FILE" in
-    "\${PWD}"/*) FILE="\${FILE#\${PWD}/}" ;;
-  esac
-fi
-
-WORKING_FILES=".ao/working-files.jsonl"
+command -v jq &>/dev/null && FILE=$(echo "$input" | jq -r '.tool_input.path // .tool_input.file_path // empty' 2>/dev/null || echo "")
+[[ -z "$FILE" ]] && exit 0
+if [[ "$FILE" = /* ]]; then case "$FILE" in "\${PWD}"/*) FILE="\${FILE#\${PWD}/}" ;; esac; fi
 mkdir -p .ao 2>/dev/null || true
-
-# Append atomically (single echo < 4KB, safe on ext4/APFS)
-echo "{\\"ts\\":$(date +%s000),\\"file\\":\\"$FILE\\"}" >> "$WORKING_FILES"
-exit 0
+echo "{\\"ts\\":$(date +%s000),\\"file\\":\\"$FILE\\"}" >> ".ao/working-files.jsonl"
 `;
 
 export const INBOX_WATCHER_SCRIPT = `#!/usr/bin/env bash
@@ -207,64 +115,19 @@ else
 fi
 `;
 
+const h = (cmd: string, timeout: number, extra?: Record<string, unknown>) =>
+  ({ hooks: [{ type: "command" as const, command: cmd, timeout, ...extra }] });
+
 export function getHookSettings(): Record<string, unknown> {
   return {
     hooks: {
       PostToolUse: [
-        {
-          hooks: [
-            {
-              type: "command",
-              command: ".claude/ao-inbox-reader.sh",
-              timeout: 5000,
-            },
-          ],
-        },
-        {
-          hooks: [
-            {
-              type: "command",
-              command: ".claude/ao-inbox-watcher.sh",
-              timeout: 60000,
-              async: true,
-              asyncRewake: true,
-            },
-          ],
-        },
-        {
-          matcher: "Write|Edit|MultiEdit",
-          hooks: [
-            {
-              type: "command",
-              command: ".claude/ao-file-tracker.sh",
-              timeout: 3000,
-            },
-          ],
-        },
+        h(".claude/ao-inbox-reader.sh", 5000),
+        h(".claude/ao-inbox-watcher.sh", 60000, { async: true, asyncRewake: true }),
+        { matcher: "Write|Edit|MultiEdit", ...h(".claude/ao-file-tracker.sh", 3000) },
       ],
-      Stop: [
-        {
-          hooks: [
-            {
-              type: "command",
-              command: ".claude/ao-stop-check.sh",
-              timeout: 5000,
-            },
-          ],
-        },
-      ],
-      UserPromptSubmit: [
-        {
-          matcher: "check inbox",
-          hooks: [
-            {
-              type: "command",
-              command: ".claude/ao-inbox-reader.sh",
-              timeout: 5000,
-            },
-          ],
-        },
-      ],
+      Stop: [h(".claude/ao-stop-check.sh", 5000)],
+      UserPromptSubmit: [{ matcher: "check inbox", ...h(".claude/ao-inbox-reader.sh", 5000) }],
     },
   };
 }
