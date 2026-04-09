@@ -20,11 +20,11 @@ describe("installCommsHooks", () => {
     expect(existsSync(join(workspaceDir, ".claude"))).toBe(true);
   });
 
-  it("writes all three hook scripts", async () => {
+  it("writes all hook scripts", async () => {
     await installCommsHooks(workspaceDir);
     expect(existsSync(join(workspaceDir, ".claude", "ao-inbox-reader.sh"))).toBe(true);
     expect(existsSync(join(workspaceDir, ".claude", "ao-stop-check.sh"))).toBe(true);
-    expect(existsSync(join(workspaceDir, ".claude", "ao-prompt-inbox.sh"))).toBe(true);
+    expect(existsSync(join(workspaceDir, ".claude", "ao-file-tracker.sh"))).toBe(true);
   });
 
   it("makes hook scripts executable", async () => {
@@ -68,7 +68,7 @@ describe("installCommsHooks", () => {
     const submitCommands = hooks["UserPromptSubmit"].flatMap((e) =>
       ((e["hooks"] ?? []) as Array<Record<string, unknown>>).map((h) => h["command"]),
     );
-    expect(submitCommands).toContain(".claude/ao-prompt-inbox.sh");
+    expect(submitCommands).toContain(".claude/ao-inbox-reader.sh");
   });
 
   it("is idempotent — does not duplicate hooks on repeated calls", async () => {

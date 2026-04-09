@@ -1,22 +1,6 @@
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-// ---------------------------------------------------------------------------
-// ao-emit bash script
-//
-// Installed as {workspacePath}/.ao/ao-emit and made executable (0o755).
-// Agents call it to write AgentEvent records back to the orchestrator:
-//
-//   ao-emit <type> <message> [json_data]
-//
-// Environment variables consumed:
-//   AO_AGENT_EVENTS_PATH  - path to the agent-events JSONL file (required;
-//                           fail silently if unset so script is safe to call
-//                           outside an AO session)
-//   AO_SESSION_ID         - session identifier (defaults to "unknown")
-//   AO_AGENT_EPOCH        - epoch counter (defaults to 1)
-// ---------------------------------------------------------------------------
-
 /* eslint-disable no-useless-escape */
 export const AO_EMIT_SCRIPT = `#!/usr/bin/env bash
 # ao-emit: write an AgentEvent back to the orchestrator's agent-events file.
@@ -122,22 +106,6 @@ exit 0
 `;
 /* eslint-enable no-useless-escape */
 
-// ---------------------------------------------------------------------------
-// installAoEmit
-// ---------------------------------------------------------------------------
-
-/**
- * Install the ao-emit script into {workspacePath}/.ao/ao-emit and make it
- * executable.  Creates the .ao/ directory if it does not yet exist.
- *
- * The script lets agents write AgentEvent records back to the orchestrator by
- * simply calling:
- *
- *   ao-emit <type> <message> [json_data]
- *
- * It is safe to install for all agent types — the script is a no-op when
- * AO_AGENT_EVENTS_PATH is not set.
- */
 export async function installAoEmit(workspacePath: string): Promise<void> {
   const aoDir = join(workspacePath, ".ao");
   await mkdir(aoDir, { recursive: true });
@@ -147,49 +115,3 @@ export async function installAoEmit(workspacePath: string): Promise<void> {
   await chmod(scriptPath, 0o755);
 }
 
-export const LOG_FORMATTER_SCRIPT = `#!/usr/bin/env python3
-import sys, json
-
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        d = json.loads(line)
-        t = d.get("type", "")
-        if t == "assistant":
-            for c in d.get("message", {}).get("content", []):
-                ct = c.get("type", "")
-                if ct == "text":
-                    print(c["text"], flush=True)
-                elif ct == "tool_use":
-                    name = c.get("name", "?")
-                    inp = c.get("input", {})
-                    desc = inp.get("description", inp.get("command", json.dumps(inp)[:120]))
-                    print(f"\\033[36m> {name}\\033[0m  {desc}", flush=True)
-                elif ct == "thinking":
-                    text = c.get("thinking", "")[:200]
-                    print(f"\\033[2m(thinking) {text}...\\033[0m", flush=True)
-        elif t == "user":
-            for c in d.get("message", {}).get("content", []):
-                if c.get("type") == "tool_result":
-                    content = str(c.get("content", ""))
-                    if content and content != "[]":
-                        for out_line in content.split("\\n")[:20]:
-                            print(f"  {out_line}", flush=True)
-        elif t == "result":
-            result = d.get("result", "")[:200]
-            print(f"\\033[33m[done] {result}\\033[0m", flush=True)
-    except (json.JSONDecodeError, KeyError):
-        print(line[:200], flush=True)
-`;
-
-export async function installLogFormatter(workspacePath: string): Promise<string> {
-  const aoDir = join(workspacePath, ".ao");
-  await mkdir(aoDir, { recursive: true });
-
-  const scriptPath = join(aoDir, "ao-log-formatter");
-  await writeFile(scriptPath, LOG_FORMATTER_SCRIPT, "utf-8");
-  await chmod(scriptPath, 0o755);
-  return scriptPath;
-}

@@ -30,7 +30,7 @@ import {
   PROMPT_INBOX_CHECK_SCRIPT,
   FILE_TRACKER_SCRIPT,
 } from "./hooks.js";
-import { installAoEmit, installLogFormatter } from "./ao-emit.js";
+import { installAoEmit } from "./ao-emit.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -174,7 +174,6 @@ function formatNdjsonUserMessage(content: string, sessionId = "default"): string
 const HOOK_SCRIPTS: Array<{ file: string; content: string }> = [
   { file: "ao-inbox-reader.sh", content: INBOX_READER_SCRIPT },
   { file: "ao-stop-check.sh", content: STOP_INBOX_CHECK_SCRIPT },
-  { file: "ao-prompt-inbox.sh", content: PROMPT_INBOX_CHECK_SCRIPT },
   { file: "ao-file-tracker.sh", content: FILE_TRACKER_SCRIPT },
 ];
 
@@ -226,11 +225,7 @@ async function createCompanionTmux(
   sessionName: string,
   workspacePath: string,
   logPath: string,
-  formatterPath: string | null,
 ): Promise<void> {
-  const viewCmd = formatterPath
-    ? `tail -f ${shellEscape(logPath)} | ${shellEscape(formatterPath)}`
-    : `tail -f ${shellEscape(logPath)}`;
   try {
     await execFileAsync(
       "tmux",
@@ -238,7 +233,7 @@ async function createCompanionTmux(
         "new-session", "-d",
         "-s", sessionName,
         "-c", workspacePath,
-        viewCmd,
+        `tail -f ${shellEscape(logPath)}`,
       ],
       { timeout: TMUX_CMD_TIMEOUT_MS },
     );
@@ -483,14 +478,7 @@ export function create(): Runtime {
         }
       }
 
-      // Install log formatter and create companion tmux session for terminal viewing.
-      let formatterPath: string | null = null;
-      try {
-        formatterPath = await installLogFormatter(config.workspacePath);
-      } catch {
-        // Non-fatal — companion tmux will show raw NDJSON
-      }
-      await createCompanionTmux(handleId, config.workspacePath, logPath, formatterPath);
+      await createCompanionTmux(handleId, config.workspacePath, logPath);
 
       return {
         id: handleId,
