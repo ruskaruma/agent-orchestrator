@@ -20,7 +20,6 @@ import {
   type Session,
   type WorkspaceHooksConfig,
 } from "@aoagents/ao-core";
-} from "@aoagents/ao-core";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { stat, access, readFile } from "node:fs/promises";

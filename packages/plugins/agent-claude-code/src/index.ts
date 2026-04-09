@@ -16,7 +16,6 @@ import {
   type Session,
   type WorkspaceHooksConfig,
 } from "@aoagents/ao-core";
-} from "@aoagents/ao-core";
 import { execFile, execFileSync } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";

@@ -58,7 +58,7 @@ const {
   mockWatchDirectory: vi.fn(() => ({ close: vi.fn() })),
 }));
 
-vi.mock("@composio/ao-plugin-runtime-file", () => ({
+vi.mock("@aoagents/ao-plugin-runtime-file", () => ({
   resolveCommsFiles: mockResolveCommsFiles,
   createCommsFiles: mockCreateCommsFiles,
   appendInboxMessage: mockAppendInboxMessage,

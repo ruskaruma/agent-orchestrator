@@ -23,7 +23,6 @@ import {
   type Session,
   type WorkspaceHooksConfig,
 } from "@aoagents/ao-core";
-} from "@aoagents/ao-core";
 import { execFile, execFileSync } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { readdir, stat, lstat, open } from "node:fs/promises";

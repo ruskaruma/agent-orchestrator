@@ -22,7 +22,6 @@ import {
   type WorkspaceHooksConfig,
   type OpenCodeAgentConfig,
 } from "@aoagents/ao-core";
-} from "@aoagents/ao-core";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { stat } from "node:fs/promises";
