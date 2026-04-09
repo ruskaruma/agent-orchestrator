@@ -1100,7 +1100,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         sessionId: tmuxName ?? sessionId,
         workspacePath,
         launchCommand,
-        agent: plugins.agent,
+
         environment: {
           ...environment,
           AO_SESSION: sessionId,
@@ -1429,7 +1429,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         sessionId: tmuxName ?? sessionId,
         workspacePath,
         launchCommand,
-        agent: plugins.agent,
+
         environment: {
           ...environment,
           AO_SESSION: sessionId,
@@ -2435,7 +2435,6 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       sessionId: tmuxName ?? sessionId,
       workspacePath,
       launchCommand,
-      agent: plugins.agent,
       environment: {
         ...environment,
         AO_SESSION: sessionId,

@@ -28,7 +28,7 @@ if command -v jq >/dev/null 2>&1; then
     JSON_LINE="\$(printf '%s' "\$BASE" | jq -c --argjson d "\$JSON_DATA" '. + {data:\$d}')"
   else JSON_LINE="\$BASE"; fi
 else
-  ESC_MSG="\$(printf '%s' "\$MESSAGE" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g')"
+  ESC_MSG="\$(printf '%s' "\$MESSAGE" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g' | tr '\\n\\t\\r' '   ')"
   if [ -n "\$JSON_DATA" ]; then
     JSON_LINE="\$(printf '{"v":1,"id":%d,"epoch":%s,"ts":"%s","source":"agent","type":"%s","message":"%s","data":%s}' \\
       "\$NEXT_ID" "\$EPOCH" "\$TS" "\$TYPE" "\$ESC_MSG" "\$JSON_DATA")"

@@ -1204,7 +1204,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       switch (newStatus) {
         case "ci_failed": return "ci_failure";
         case "review_pending": return "review_pending";
-        case "changes_requested": return "review_pending";
+        case "changes_requested": return "changes_requested";
         case "approved": return "review_approved";
         case "mergeable": return "merge_ready";
         default: return null;

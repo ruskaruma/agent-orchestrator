@@ -631,17 +631,6 @@ function createCodexAgent(): Agent {
       await setupPathWrapperWorkspace(session.workspacePath);
     },
 
-    getProgrammaticCommand(baseCommand: string): string {
-      // Swap `codex [flags] [prompt]` → `<resolvedPath> app-server` for JSON-RPC mode.
-      // Prefer resolvedBinary if postLaunchSetup already ran; otherwise extract the
-      // binary path from baseCommand (first whitespace-delimited token) so we don't
-      // discard a path the launcher already resolved.
-      if (resolvedBinary) return `${shellEscape(resolvedBinary)} app-server`;
-      const firstToken = baseCommand.trim().split(/\s+/)[0];
-      const binary = firstToken && firstToken.length > 0 ? firstToken : "codex";
-      return `${shellEscape(binary)} app-server`;
-    },
-
   };
 }
 

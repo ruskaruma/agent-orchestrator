@@ -823,10 +823,6 @@ function createClaudeCodeAgent(): Agent {
       await setupHookInWorkspace(session.workspacePath, ".claude/metadata-updater.sh");
     },
 
-    getProgrammaticCommand(baseCommand: string): string {
-      if (baseCommand.includes("--input-format")) return baseCommand;
-      return baseCommand.replace(/((?:^|\s)(?:[^\s]*\/)?)claude(\s|$)/, "$1claude -p --input-format stream-json --output-format stream-json --verbose$2");
-    },
 
   };
 }

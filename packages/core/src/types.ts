@@ -311,10 +311,6 @@ export interface RuntimeCreateConfig {
   workspacePath: string;
   launchCommand: string;
   environment: Record<string, string>;
-  /**
-   * Optional: the agent plugin instance, passed through for runtime use.
-   */
-  agent?: Agent;
 }
 
 /** Opaque handle returned by runtime.create() */
@@ -426,9 +422,6 @@ export interface Agent {
    * `getActivityState` already reads richer data from the agent's own session files.
    */
   recordActivity?(session: Session, terminalOutput: string): Promise<void>;
-
-  getProgrammaticCommand?(baseCommand: string): string;
-
 }
 
 export interface AgentLaunchConfig {

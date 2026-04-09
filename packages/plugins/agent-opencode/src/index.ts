@@ -465,9 +465,6 @@ function createOpenCodeAgent(): Agent {
       await setupPathWrapperWorkspace(session.workspacePath);
     },
 
-    getProgrammaticCommand(baseCommand: string): string {
-      return baseCommand;
-    },
 
   };
 }
