@@ -76,6 +76,12 @@ export function appendMessage(
   extra?: Record<string, unknown>,
 ): ProtocolMessage {
   const counterKey = `${sessionId}:${source}`;
+  if (!messageCounters.has(counterKey)) {
+    try {
+      const last = readFileSync(filePath, "utf-8").trimEnd().split("\n").pop();
+      if (last) messageCounters.set(counterKey, (JSON.parse(last) as { id?: number }).id ?? 0);
+    } catch { /* empty/missing — start at 0 */ }
+  }
   const nextId = (messageCounters.get(counterKey) ?? 0) + 1;
   messageCounters.set(counterKey, nextId);
 
@@ -125,8 +131,9 @@ export function readNewMessages(filePath: string): { messages: ProtocolMessage[]
   if (fileSize < cursor) { cursor = 0; atomicWrite(cursorPath, "0"); }
   if (fileSize <= cursor) { closeSync(fd); return { messages: [], newCursor: cursor }; }
 
-  const buf = Buffer.alloc(fileSize - cursor);
-  readSync(fd, buf, 0, fileSize - cursor, cursor);
+  const bytesToRead = Math.min(fileSize - cursor, 65536);
+  const buf = Buffer.alloc(bytesToRead);
+  readSync(fd, buf, 0, bytesToRead, cursor);
   closeSync(fd);
 
   const lines = buf.toString("utf-8").split("\n");

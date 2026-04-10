@@ -79,15 +79,16 @@ command -v jq &>/dev/null && FILE=$(echo "$input" | jq -r '.tool_input.path // .
 [[ -z "$FILE" ]] && exit 0
 if [[ "$FILE" = /* ]]; then case "$FILE" in "\${PWD}"/*) FILE="\${FILE#\${PWD}/}" ;; esac; fi
 mkdir -p .ao 2>/dev/null || true
-echo "{\\"ts\\":$(date +%s000),\\"file\\":\\"$FILE\\"}" >> ".ao/working-files.jsonl"
+jq -cn --arg f "$FILE" '{ts:(now*1000|floor),file:$f}' >> ".ao/working-files.jsonl"
 `;
 
 export const INBOX_WATCHER_SCRIPT = `#!/usr/bin/env bash
 set -euo pipefail
 F="\${AO_INBOX_PATH:-}"
 [[ -z "$F" || ! -f "$F" ]] && exit 0
-command -v flock &>/dev/null || exit 0
-exec 9>"\${F}.watcher-lock"; flock -n 9 || exit 0
+LOCKDIR="\${F}.watcher-lock.d"
+mkdir "\$LOCKDIR" 2>/dev/null || exit 0
+trap 'rmdir "\$LOCKDIR" 2>/dev/null' EXIT
 
 new() {
   c=\$(grep -Eo '^[0-9]+' "\${F}.hook-cursor" 2>/dev/null || echo 0)
@@ -126,6 +127,7 @@ export function getHookSettings(): Record<string, unknown> {
         h(".claude/ao-inbox-watcher.sh", 60000, { async: true, asyncRewake: true }),
         { matcher: "Write|Edit|MultiEdit", ...h(".claude/ao-file-tracker.sh", 3000) },
       ],
+      FileChanged: [{ matcher: "inbox", ...h(".claude/ao-inbox-reader.sh", 5000) }],
       Stop: [h(".claude/ao-stop-check.sh", 5000)],
       UserPromptSubmit: [{ matcher: "check inbox", ...h(".claude/ao-inbox-reader.sh", 5000) }],
     },

@@ -5,7 +5,7 @@ import { createSessionManager } from "../../session-manager.js";
 import { writeMetadata, readMetadataRaw } from "../../metadata.js";
 import type { OrchestratorConfig, PluginRegistry, Runtime, Agent } from "../../types.js";
 import { setupTestContext, teardownTestContext, makeHandle, type TestContext } from "../test-utils.js";
-import { installMockOpencode, installMockOpencodeSequence } from "./opencode-helpers.js";
+import { installMockOpencode } from "./opencode-helpers.js";
 
 let ctx: TestContext;
 let tmpDir: string;
@@ -47,7 +47,7 @@ describe("send", () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(true);
     vi.mocked(mockRuntime.getOutput).mockResolvedValue("agent output");
     vi.mocked(mockAgent.isProcessRunning).mockResolvedValue(true);
-    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "active", timestamp: Date.now() });
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "active", timestamp: new Date() });
     vi.mocked(mockAgent.detectActivity).mockReturnValue("active");
 
     const sm = createSessionManager({ config, registry: mockRegistry });

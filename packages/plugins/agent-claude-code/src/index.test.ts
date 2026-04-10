@@ -147,7 +147,7 @@ describe("plugin manifest & exports", () => {
     const agent = create();
     expect(agent.name).toBe("claude-code");
     expect(agent.processName).toBe("claude");
-    expect(agent.promptDelivery).toBe("post-launch");
+    expect(agent.promptDelivery).toBe("inline");
   });
 
   it("default export is a valid PluginModule", () => {
@@ -192,17 +192,17 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--model 'claude-opus-4-6'");
   });
 
-  it("does not include -p flag (prompt delivered post-launch)", () => {
+  it("includes prompt as positional arg (inline delivery, no -p)", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ prompt: "Fix the bug" }));
     expect(cmd).not.toContain("-p");
-    expect(cmd).not.toContain("Fix the bug");
+    expect(cmd).toContain("Fix the bug");
   });
 
-  it("combines all options without prompt", () => {
+  it("combines all options with prompt", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "opus", prompt: "Hello" }),
     );
-    expect(cmd).toBe("claude --dangerously-skip-permissions --model 'opus'");
+    expect(cmd).toBe("claude --dangerously-skip-permissions --model 'opus' 'Hello'");
   });
 
   it("omits --dangerously-skip-permissions when permissions=default", () => {
@@ -224,17 +224,17 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("You are a helper");
     // -p as a standalone flag (not substring of --append-system-prompt)
     expect(cmd).not.toMatch(/\s-p\s/);
-    expect(cmd).not.toContain("Do the task");
+    expect(cmd).toContain("Do the task");
   });
 
-  it("uses systemPromptFile via shell substitution alongside omitted -p", () => {
+  it("uses systemPromptFile via shell substitution with inline prompt", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPromptFile: "/tmp/prompt.md", prompt: "Do the task" }),
     );
     expect(cmd).toContain('--append-system-prompt "$(cat');
     expect(cmd).toContain("/tmp/prompt.md");
     expect(cmd).not.toMatch(/\s-p\s/);
-    expect(cmd).not.toContain("Do the task");
+    expect(cmd).toContain("Do the task");
   });
 });
 

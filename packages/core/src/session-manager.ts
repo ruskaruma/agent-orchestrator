@@ -11,7 +11,7 @@
  * Reference: scripts/claude-ao-session, scripts/send-to-session
  */
 
-import { statSync, existsSync, readdirSync, writeFileSync, mkdirSync, utimesSync, unlinkSync, appendFileSync } from "node:fs";
+import { statSync, existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, utimesSync, unlinkSync, appendFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { basename, join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -210,8 +210,6 @@ const STALE_PR_OWNERSHIP_STATUSES: ReadonlySet<string> = new Set([
 
 const SEND_RESTORE_READY_TIMEOUT_MS = 5_000;
 const SEND_RESTORE_READY_POLL_MS = 500;
-const SEND_CONFIRMATION_ATTEMPTS = 6;
-const SEND_CONFIRMATION_POLL_MS = 500;
 const SEND_CONFIRMATION_OUTPUT_LINES = 20;
 const SEND_BOOTSTRAP_READY_TIMEOUT_MS = 20_000;
 const SEND_BOOTSTRAP_STABLE_POLLS = 2;
@@ -255,19 +253,29 @@ export interface SessionManagerDeps {
 }
 
 /** Create a SessionManager instance. */
+let _inboxCounter = 0;
 function writeToInbox(handle: RuntimeHandle, message: string): void {
   const inboxPath = handle.data["inboxPath"] as string | undefined;
   if (!inboxPath) {
     console.warn(`[session-manager] Cannot write to inbox for "${handle.id}": missing inboxPath in handle data`);
     return;
   }
-  const dir = join(inboxPath, "..");
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(join(inboxPath, ".."), { recursive: true });
+  // Seed counter from file on first write to avoid ID gaps after restart
+  if (_inboxCounter === 0) {
+    try {
+      const last = readFileSync(inboxPath, "utf-8").trimEnd().split("\n").pop();
+      if (last) _inboxCounter = (JSON.parse(last) as { id?: number }).id ?? 0;
+    } catch { /* empty or missing — start at 0 */ }
+  }
+  _inboxCounter++;
+  let epoch = 0;
+  try { epoch = parseInt(readFileSync(join(inboxPath, "..", "epoch"), "utf-8").trim(), 10) || 0; } catch { /* missing — use 0 */ }
   appendFileSync(inboxPath, JSON.stringify({
-    v: 1, id: 1, epoch: 0,
+    v: 1, id: _inboxCounter, epoch,
     ts: new Date().toISOString(),
     source: "orchestrator", type: "instruction", message,
-    dedup: `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    dedup: `${process.pid}-${Date.now()}-${_inboxCounter}`,
   }) + "\n", { encoding: "utf-8" });
 }
 
@@ -1907,27 +1915,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     };
 
-    const detectActivityFromOutput = (output: string) => {
-      if (!output) return null;
-      try {
-        return agentPlugin.detectActivity(output);
-      } catch {
-        return null;
-      }
-    };
-
     const hasQueuedMessage = (output: string): boolean => {
       return output.includes("Press up to edit queued messages");
-    };
-
-    const getOpenCodeSessionUpdatedAt = async (): Promise<number | undefined> => {
-      const mappedSessionId = asValidOpenCodeSessionId(raw["opencodeSessionId"]);
-      if (agentName !== "opencode" || !mappedSessionId) {
-        return undefined;
-      }
-
-      const sessions = await fetchOpenCodeSessionList(OPENCODE_DISCOVERY_TIMEOUT_MS);
-      return sessions.find((entry) => entry.id === mappedSessionId)?.updatedAt;
     };
 
     const waitForInteractiveReadiness = async (

@@ -1411,6 +1411,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                     break;
 
                   case "escalation": {
+                    if ((event as Record<string, unknown>)["forwarded"]) break;
                     const escalationMessage =
                       typeof event["message"] === "string"
                         ? event["message"]
