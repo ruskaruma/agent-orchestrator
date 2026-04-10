@@ -11,7 +11,7 @@
  * Reference: scripts/claude-ao-session, scripts/send-to-session
  */
 
-import { statSync, existsSync, readdirSync, writeFileSync, mkdirSync, utimesSync, unlinkSync } from "node:fs";
+import { statSync, existsSync, readdirSync, writeFileSync, mkdirSync, utimesSync, unlinkSync, appendFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { basename, join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -255,6 +255,22 @@ export interface SessionManagerDeps {
 }
 
 /** Create a SessionManager instance. */
+function writeToInbox(handle: RuntimeHandle, message: string): void {
+  const inboxPath = handle.data["inboxPath"] as string | undefined;
+  if (!inboxPath) {
+    console.warn(`[session-manager] Cannot write to inbox for "${handle.id}": missing inboxPath in handle data`);
+    return;
+  }
+  const dir = join(inboxPath, "..");
+  mkdirSync(dir, { recursive: true });
+  appendFileSync(inboxPath, JSON.stringify({
+    v: 1, id: 1, epoch: 0,
+    ts: new Date().toISOString(),
+    source: "orchestrator", type: "instruction", message,
+    dedup: `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  }) + "\n", { encoding: "utf-8" });
+}
+
 export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionManager {
   const { config, registry } = deps;
 
@@ -1229,7 +1245,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           // Wait for agent to start and be ready for input
           // Use exponential backoff: 3s, 6s, 9s between attempts
           await new Promise((resolve) => setTimeout(resolve, baseDelayMs * attempt));
-          await plugins.runtime.sendMessage(handle, agentLaunchConfig.prompt);
+          writeToInbox(handle, agentLaunchConfig.prompt);
           promptDelivered = true;
           break;
         } catch (err) {
@@ -2063,73 +2079,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       return normalized;
     };
 
-    const sendWithConfirmation = async (session: Session): Promise<void> => {
-      const handle = session.runtimeHandle;
-      if (!handle) {
-        throw new Error(`Session ${sessionId} has no runtime handle`);
-      }
-
-      const baselineOutput = await captureOutput(handle);
-      const baselineActivity = detectActivityFromOutput(baselineOutput) ?? session.activity;
-      const baselineUpdatedAt = await getOpenCodeSessionUpdatedAt();
-
-      await runtimePlugin.sendMessage(handle, message);
-
-      for (let attempt = 1; attempt <= SEND_CONFIRMATION_ATTEMPTS; attempt++) {
-        // Sleep before each check (including the first) so the runtime has time
-        // to reflect the message in its output.
-        await sleep(SEND_CONFIRMATION_POLL_MS);
-
-        const output = await captureOutput(handle);
-        const activity = detectActivityFromOutput(output) ?? session.activity;
-        const updatedAt = await getOpenCodeSessionUpdatedAt();
-        const delivered =
-          (baselineUpdatedAt !== undefined &&
-            updatedAt !== undefined &&
-            updatedAt > baselineUpdatedAt) ||
-          hasQueuedMessage(output) ||
-          (output.length > 0 && output !== baselineOutput) ||
-          (baselineActivity !== "active" && activity === "active") ||
-          (baselineActivity !== "waiting_input" && activity === "waiting_input");
-
-        if (delivered) {
-          return;
-        }
-      }
-
-      // Message was already sent via runtimePlugin.sendMessage above — if we
-      // cannot *confirm* delivery (e.g. agent is slow to show output), treat it
-      // as a soft success rather than throwing.  Throwing here caused the caller
-      // to report failure, which prevented the dispatch-hash from updating and
-      // led to duplicate messages on the next poll cycle.
-      return;
-    };
-
-    let prepared = await prepareSession();
-
-    try {
-      await sendWithConfirmation(prepared);
-    } catch (err) {
-      const shouldRetryWithRestore =
-        prepared.restoredAt === undefined && !NON_RESTORABLE_STATUSES.has(prepared.status);
-
-      if (!shouldRetryWithRestore) {
-        if (err instanceof Error) {
-          throw err;
-        }
-        throw new Error(String(err), { cause: err });
-      }
-
-      prepared = await prepareSession(true);
-      try {
-        await sendWithConfirmation(prepared);
-      } catch (retryErr) {
-        if (retryErr instanceof Error) {
-          throw retryErr;
-        }
-        throw new Error(String(retryErr), { cause: retryErr });
-      }
+    const prepared = await prepareSession();
+    const handle = prepared.runtimeHandle;
+    if (!handle) {
+      throw new Error(`Session ${sessionId} has no runtime handle`);
     }
+    writeToInbox(handle, message);
   }
 
   async function claimPR(

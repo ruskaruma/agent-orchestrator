@@ -17,9 +17,7 @@ import {
 import {
   resolveCommsFiles,
   createCommsFiles,
-  appendInboxMessage,
   appendMessage,
-  generateDedupKey,
   setupComms,
   readNewMessages,
   readEpoch,
@@ -154,20 +152,6 @@ export function create(): Runtime {
       } catch {
         // session may already be dead
       }
-    },
-
-    async sendMessage(handle: RuntimeHandle, message: string): Promise<void> {
-      const sessionsDir = handle.data["sessionsDir"] as string | undefined;
-      const sessionId = handle.data["sessionId"] as string | undefined;
-      if (!sessionsDir || !sessionId) {
-        throw new Error(
-          `Cannot send message to session "${handle.id}": missing sessionsDir/sessionId in runtime handle`,
-        );
-      }
-
-      const files = resolveCommsFiles(sessionsDir, sessionId);
-      const epoch = readEpoch(sessionsDir, sessionId);
-      appendInboxMessage(files.inbox, sessionId, epoch, "instruction", message, generateDedupKey());
     },
 
     async getOutput(handle: RuntimeHandle, lines = 50): Promise<string> {

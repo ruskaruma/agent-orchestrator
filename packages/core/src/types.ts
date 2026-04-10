@@ -261,9 +261,6 @@ export interface Runtime {
   /** Destroy a session environment */
   destroy(handle: RuntimeHandle): Promise<void>;
 
-  /** Send a text message/prompt to the running agent */
-  sendMessage(handle: RuntimeHandle, message: string): Promise<void>;
-
   /** Capture recent output from the session */
   getOutput(handle: RuntimeHandle, lines?: number): Promise<string>;
 
@@ -355,7 +352,7 @@ export interface Agent {
   /**
    * How the initial prompt should be delivered to the agent.
    * - "inline" (default): prompt is included in the launch command (e.g. -p flag)
-   * - "post-launch": prompt is sent via runtime.sendMessage() after the agent starts,
+   * - "post-launch": prompt is written to the inbox file after the agent starts,
    *   keeping the agent in interactive mode. Use this for agents where inlining
    *   the prompt causes one-shot/exit behavior (e.g. Claude Code's -p flag).
    */
