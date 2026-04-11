@@ -631,7 +631,7 @@ function createClaudeCodeAgent(): Agent {
   return {
     name: "claude-code",
     processName: "claude",
-    promptDelivery: "inline",
+    promptDelivery: "post-launch",
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       // Note: CLAUDECODE is unset via getEnvironment() (set to ""), not here.
@@ -656,9 +656,8 @@ function createClaudeCodeAgent(): Agent {
         parts.push("--append-system-prompt", shellEscape(config.systemPrompt));
       }
 
-      if (config.prompt) {
-        parts.push(shellEscape(config.prompt));
-      }
+      // Prompt is delivered post-launch via inbox file, NOT inlined here.
+      // A bare positional arg triggers one-shot mode (Claude exits after responding).
 
       return parts.join(" ");
     },

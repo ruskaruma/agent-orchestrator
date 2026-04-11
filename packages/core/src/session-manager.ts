@@ -253,29 +253,31 @@ export interface SessionManagerDeps {
 }
 
 /** Create a SessionManager instance. */
-let _inboxCounter = 0;
+const _inboxCounters = new Map<string, number>();
 function writeToInbox(handle: RuntimeHandle, message: string): void {
   const inboxPath = handle.data["inboxPath"] as string | undefined;
   if (!inboxPath) {
-    console.warn(`[session-manager] Cannot write to inbox for "${handle.id}": missing inboxPath in handle data`);
-    return;
+    throw new Error(`Cannot write to inbox for "${handle.id}": missing inboxPath in handle data`);
   }
   mkdirSync(join(inboxPath, ".."), { recursive: true });
-  // Seed counter from file on first write to avoid ID gaps after restart
-  if (_inboxCounter === 0) {
+  // Seed counter from file on first write per inbox to maintain per-file monotonic IDs
+  if (!_inboxCounters.has(inboxPath)) {
+    let seed = 0;
     try {
       const last = readFileSync(inboxPath, "utf-8").trimEnd().split("\n").pop();
-      if (last) _inboxCounter = (JSON.parse(last) as { id?: number }).id ?? 0;
+      if (last) seed = (JSON.parse(last) as { id?: number }).id ?? 0;
     } catch { /* empty or missing — start at 0 */ }
+    _inboxCounters.set(inboxPath, seed);
   }
-  _inboxCounter++;
+  const counter = _inboxCounters.get(inboxPath)! + 1;
+  _inboxCounters.set(inboxPath, counter);
   let epoch = 0;
   try { epoch = parseInt(readFileSync(join(inboxPath, "..", "epoch"), "utf-8").trim(), 10) || 0; } catch { /* missing — use 0 */ }
   appendFileSync(inboxPath, JSON.stringify({
-    v: 1, id: _inboxCounter, epoch,
+    v: 1, id: counter, epoch,
     ts: new Date().toISOString(),
     source: "orchestrator", type: "instruction", message,
-    dedup: `${process.pid}-${Date.now()}-${_inboxCounter}`,
+    dedup: `${process.pid}-${Date.now()}-${counter}`,
   }) + "\n", { encoding: "utf-8" });
 }
 

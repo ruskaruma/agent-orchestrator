@@ -838,6 +838,11 @@ describe("spawn", () => {
 
   it("sends prompt post-launch when agent.promptDelivery is 'post-launch'", async () => {
     vi.useFakeTimers();
+    const inboxPath = join(tmpDir, "comms-app-1", "inbox.jsonl");
+    vi.mocked(mockRuntime.create).mockResolvedValue({
+      id: "rt-1", runtimeName: "mock",
+      data: { inboxPath },
+    });
     const postLaunchAgent = {
       ...mockAgent,
       promptDelivery: "post-launch" as const,
@@ -858,7 +863,9 @@ describe("spawn", () => {
     await spawnPromise;
 
     // Prompt should be written to inbox, not included in launch command
-    // (writeToInbox is called directly, not through runtime)
+    expect(existsSync(inboxPath)).toBe(true);
+    const content = readFileSync(inboxPath, "utf-8");
+    expect(content).toContain("Fix the bug");
     vi.useRealTimers();
   });
 
@@ -871,6 +878,10 @@ describe("spawn", () => {
 
   it("sends AO guidance post-launch even when no explicit prompt is provided", async () => {
     vi.useFakeTimers();
+    vi.mocked(mockRuntime.create).mockResolvedValue({
+      id: "rt-1", runtimeName: "mock",
+      data: { inboxPath: join(tmpDir, "comms-app-1", "inbox.jsonl") },
+    });
     const postLaunchAgent = {
       ...mockAgent,
       promptDelivery: "post-launch" as const,
@@ -894,7 +905,7 @@ describe("spawn", () => {
     vi.useRealTimers();
   });
 
-  it("succeeds even when inbox path is missing from handle (no-op write)", async () => {
+  it("succeeds even when inbox path is missing from handle (retries exhaust gracefully)", async () => {
     vi.useFakeTimers();
     const postLaunchAgent = {
       ...mockAgent,
@@ -912,10 +923,11 @@ describe("spawn", () => {
 
     const sm = createSessionManager({ config, registry: registryWithPostLaunch });
     const spawnPromise = sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
-    await vi.advanceTimersByTimeAsync(5_000);
+    // writeToInbox throws when inboxPath is missing; retry loop needs 3+6+9=18s
+    await vi.advanceTimersByTimeAsync(20_000);
     const session = await spawnPromise;
 
-    // Session returned successfully — writeToInbox warns but doesn't crash
+    // Session returned successfully — writeToInbox throws but post-launch retry catches it
     expect(session.id).toBe("app-1");
     expect(session.status).toBe("spawning");
     expect(mockRuntime.destroy).not.toHaveBeenCalled();
@@ -924,6 +936,10 @@ describe("spawn", () => {
 
   it("waits before sending post-launch prompt", async () => {
     vi.useFakeTimers();
+    vi.mocked(mockRuntime.create).mockResolvedValue({
+      id: "rt-1", runtimeName: "mock",
+      data: { inboxPath: join(tmpDir, "comms-app-1", "inbox.jsonl") },
+    });
     const postLaunchAgent = {
       ...mockAgent,
       promptDelivery: "post-launch" as const,

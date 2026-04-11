@@ -83,7 +83,7 @@ describe("send", () => {
     await expect(sm.send("nope", "hello")).rejects.toThrow("not found");
   });
 
-  it("warns but does not crash when handle has no comms data", async () => {
+  it("throws when handle has no inboxPath", async () => {
     writeMetadata(sessionsDir, "app-1", {
       worktree: join(tmpDir, "ws-app-1"),
       branch: "main",
@@ -96,7 +96,7 @@ describe("send", () => {
     vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "active" });
 
     const sm = createSessionManager({ config, registry: mockRegistry });
-    await expect(sm.send("app-1", "hello")).resolves.toBeUndefined();
+    await expect(sm.send("app-1", "hello")).rejects.toThrow("missing inboxPath");
   });
 });
 
