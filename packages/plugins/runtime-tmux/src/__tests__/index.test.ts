@@ -370,11 +370,12 @@ describe("runtime.create() comms setup", () => {
 
     expect(mockResolveCommsFiles).toHaveBeenCalledWith("/tmp/sessions", "comms-test");
     expect(mockCreateCommsFiles).toHaveBeenCalled();
-    expect(mockSetupComms).toHaveBeenCalledWith("/tmp/ws", { hooks: true });
+    expect(mockSetupComms).toHaveBeenCalledWith("/tmp/ws", { flavors: ["claude-code"] });
   });
 
-  it("skips claude hooks for non-claude agents but still installs ao-emit", async () => {
+  it("installs aider flavor and attempts generic watcher window", async () => {
     const runtime = create();
+    mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -385,7 +386,14 @@ describe("runtime.create() comms setup", () => {
       environment: { AO_DATA_DIR: "/tmp/sessions", AO_AGENT_NAME: "aider" },
     });
 
-    expect(mockSetupComms).toHaveBeenCalledWith("/tmp/ws", { hooks: false });
+    expect(mockSetupComms).toHaveBeenCalledWith("/tmp/ws", { flavors: ["aider"] });
+    const newWindowCall = mockExecFileCustom.mock.calls.find(
+      (call) => (call[1] as string[])[0] === "new-window",
+    );
+    expect(newWindowCall).toBeDefined();
+    const args = newWindowCall![1] as string[];
+    expect(args).toContain("ao-watcher");
+    expect(args).toContain("AO_WAKE_MODE=inject");
   });
 
   it("propagates AO_INBOX_PATH and AO_AGENT_EVENTS_PATH into tmux env", async () => {

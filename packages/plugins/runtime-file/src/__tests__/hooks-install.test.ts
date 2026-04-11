@@ -146,3 +146,51 @@ describe("setupComms (claude-code)", () => {
     expect(settings["hooks"]).toBeDefined();
   });
 });
+
+describe("setupComms flavors", () => {
+  let workspaceDir: string;
+  beforeEach(() => { workspaceDir = mkdtempSync(join(tmpdir(), "ao-flavors-")); });
+  afterEach(() => { rmSync(workspaceDir, { recursive: true, force: true }); });
+
+  it("codex flavor installs .codex/ hook scripts and generic watcher", async () => {
+    await setupComms(workspaceDir, { flavors: ["codex"] });
+    expect(existsSync(join(workspaceDir, ".codex", "ao-inbox-reader.sh"))).toBe(true);
+    expect(existsSync(join(workspaceDir, ".codex", "ao-stop-inbox.sh"))).toBe(true);
+    const cfg = JSON.parse(readFileSync(join(workspaceDir, ".codex", "hooks.json"), "utf-8"));
+    expect(cfg.hooks.PostToolUse).toBeDefined();
+    expect(cfg.hooks.Stop).toBeDefined();
+    expect(existsSync(join(workspaceDir, ".ao", "ao-watcher.sh"))).toBe(true);
+  });
+
+  it("opencode flavor installs .opencode/plugin/ao-inbox.js (no watcher)", async () => {
+    await setupComms(workspaceDir, { flavors: ["opencode"] });
+    expect(existsSync(join(workspaceDir, ".opencode", "plugin", "ao-inbox.js"))).toBe(true);
+    expect(existsSync(join(workspaceDir, ".ao", "ao-watcher.sh"))).toBe(false);
+  });
+
+  it("cursor flavor installs sessionStart hook + AO_HOOK_FORMAT=cursor + watcher", async () => {
+    await setupComms(workspaceDir, { flavors: ["cursor"] });
+    const reader = readFileSync(join(workspaceDir, ".cursor", "ao-inbox-reader.sh"), "utf-8");
+    expect(reader).toContain("AO_HOOK_FORMAT=cursor");
+    const cfg = JSON.parse(readFileSync(join(workspaceDir, ".cursor", "hooks.json"), "utf-8"));
+    expect(cfg.version).toBe(1);
+    expect(cfg.hooks.sessionStart).toBeDefined();
+    expect(existsSync(join(workspaceDir, ".ao", "ao-watcher.sh"))).toBe(true);
+  });
+
+  it("aider flavor installs only the generic watcher", async () => {
+    await setupComms(workspaceDir, { flavors: ["aider"] });
+    expect(existsSync(join(workspaceDir, ".ao", "ao-watcher.sh"))).toBe(true);
+    expect(existsSync(join(workspaceDir, ".claude"))).toBe(false);
+    expect(existsSync(join(workspaceDir, ".codex"))).toBe(false);
+    expect(existsSync(join(workspaceDir, ".cursor"))).toBe(false);
+    expect(existsSync(join(workspaceDir, ".opencode"))).toBe(false);
+  });
+
+  it("empty flavors installs ao-emit only", async () => {
+    await setupComms(workspaceDir, { flavors: [] });
+    expect(existsSync(join(workspaceDir, ".ao", "ao-emit"))).toBe(true);
+    expect(existsSync(join(workspaceDir, ".claude"))).toBe(false);
+    expect(existsSync(join(workspaceDir, ".ao", "ao-watcher.sh"))).toBe(false);
+  });
+});

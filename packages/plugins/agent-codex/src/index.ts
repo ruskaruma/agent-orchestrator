@@ -341,6 +341,7 @@ function createCodexAgent(): Agent {
       const binary = resolvedBinary ?? "codex";
       const parts: string[] = [shellEscape(binary)];
       appendNoUpdateCheckFlag(parts);
+      parts.push("-c", "features.codex_hooks=true");
 
       appendApprovalFlags(parts, config.permissions);
       appendModelFlags(parts, config.model);

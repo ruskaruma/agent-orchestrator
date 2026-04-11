@@ -24,6 +24,7 @@ import {
   watchDirectory,
   AGENT_EVENTS_FILE,
   type SessionCommsFiles,
+  type Flavor,
 } from "@aoagents/ao-plugin-runtime-file";
 
 const execFileAsync = promisify(execFile);
@@ -37,6 +38,17 @@ export const manifest = {
 };
 
 const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]+$/;
+
+const AGENT_FLAVORS: Record<string, Flavor[]> = {
+  "claude-code": ["claude-code"],
+  codex: ["codex"],
+  opencode: ["opencode"],
+  cursor: ["cursor"],
+  aider: ["aider"],
+};
+
+const NEEDS_WATCHER: ReadonlySet<Flavor> = new Set(["codex", "cursor", "aider"]);
+const INJECT_FLAVORS: ReadonlySet<Flavor> = new Set(["cursor", "aider"]);
 
 function assertValidSessionId(id: string): void {
   if (!SAFE_SESSION_ID.test(id)) {
@@ -62,12 +74,12 @@ async function setupCommsForSession(
   workspacePath: string,
   sessionsDir: string,
   sessionId: string,
-  agentName: string,
+  flavors: Flavor[],
 ): Promise<SessionCommsFiles> {
   const files = resolveCommsFiles(sessionsDir, sessionId);
   createCommsFiles(files);
   try {
-    await setupComms(workspacePath, { hooks: agentName === "claude-code" });
+    await setupComms(workspacePath, { flavors });
   } catch (err) {
     console.warn(`[runtime-tmux] comms setup failed:`, err instanceof Error ? err.message : String(err));
   }
@@ -85,6 +97,7 @@ export function create(): Runtime {
       const env = config.environment ?? {};
       const sessionsDir = env["AO_DATA_DIR"] ?? "";
       const agentName = env["AO_AGENT_NAME"] ?? "";
+      const flavors: Flavor[] = AGENT_FLAVORS[agentName] ?? [];
 
       let files: SessionCommsFiles | null = null;
       if (sessionsDir) {
@@ -92,7 +105,7 @@ export function create(): Runtime {
           config.workspacePath,
           sessionsDir,
           config.sessionId,
-          agentName,
+          flavors,
         );
       }
 
@@ -130,6 +143,30 @@ export function create(): Runtime {
         throw new Error(`Failed to send launch command to session "${sessionName}": ${msg}`, {
           cause: err,
         });
+      }
+
+      if (files && flavors.some((f) => NEEDS_WATCHER.has(f))) {
+        const mode = flavors.some((f) => INJECT_FLAVORS.has(f)) ? "inject" : "wake";
+        const watcherScript = join(config.workspacePath, ".ao", "ao-watcher.sh");
+        try {
+          await tmux(
+            "new-window",
+            "-t",
+            `${sessionName}:9`,
+            "-d",
+            "-n",
+            "ao-watcher",
+            "-e",
+            `AO_INBOX_PATH=${files.inbox}`,
+            "-e",
+            `AO_WAKE_TARGET=${sessionName}:0.0`,
+            "-e",
+            `AO_WAKE_MODE=${mode}`,
+            `bash ${shellEscape(watcherScript)}`,
+          );
+        } catch {
+          // best effort
+        }
       }
 
       return {
