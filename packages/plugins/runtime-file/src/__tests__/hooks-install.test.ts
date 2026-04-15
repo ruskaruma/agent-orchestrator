@@ -56,15 +56,17 @@ describe("setupComms (claude-code)", () => {
     ) as Record<string, unknown>;
     const hooks = settings["hooks"] as Record<string, Array<Record<string, unknown>>>;
 
-    const postToolUseHooks = hooks["PostToolUse"].flatMap((e) =>
-      (e["hooks"] ?? []) as Array<Record<string, unknown>>,
+    const postToolUseHooks = hooks["PostToolUse"].flatMap(
+      (e) => (e["hooks"] ?? []) as Array<Record<string, unknown>>,
     );
     const postToolUseCommands = postToolUseHooks.map((h) => h["command"]);
-    expect(postToolUseCommands).toContain(".claude/ao-inbox-reader.sh");
+    expect(postToolUseCommands).toContain(".claude/ao-inbox-reader.sh PostToolUse");
     expect(postToolUseCommands).toContain(".claude/ao-inbox-watcher.sh");
 
     // Watcher must be registered as async + asyncRewake
-    const watcherHook = postToolUseHooks.find((h) => h["command"] === ".claude/ao-inbox-watcher.sh");
+    const watcherHook = postToolUseHooks.find(
+      (h) => h["command"] === ".claude/ao-inbox-watcher.sh",
+    );
     expect(watcherHook?.["async"]).toBe(true);
     expect(watcherHook?.["asyncRewake"]).toBe(true);
 
@@ -76,7 +78,7 @@ describe("setupComms (claude-code)", () => {
     const submitCommands = hooks["UserPromptSubmit"].flatMap((e) =>
       ((e["hooks"] ?? []) as Array<Record<string, unknown>>).map((h) => h["command"]),
     );
-    expect(submitCommands).toContain(".claude/ao-inbox-reader.sh");
+    expect(submitCommands).toContain(".claude/ao-inbox-reader.sh UserPromptSubmit");
   });
 
   it("is idempotent — does not duplicate hooks on repeated calls", async () => {
@@ -92,7 +94,7 @@ describe("setupComms (claude-code)", () => {
     const postToolUse = hooks["PostToolUse"] as Array<Record<string, unknown>>;
     const inboxReaderEntries = postToolUse.filter((e) => {
       const hs = (e["hooks"] ?? []) as Array<Record<string, unknown>>;
-      return hs.some((h) => h["command"] === ".claude/ao-inbox-reader.sh");
+      return hs.some((h) => h["command"] === ".claude/ao-inbox-reader.sh PostToolUse");
     });
     expect(inboxReaderEntries).toHaveLength(1);
   });
@@ -121,14 +123,16 @@ describe("setupComms (claude-code)", () => {
     await setupComms(workspaceDir, { hooks: true });
 
     const settings = JSON.parse(readFileSync(settingsPath, "utf-8")) as Record<string, unknown>;
-    const postToolUse = (settings["hooks"] as Record<string, unknown[]>)["PostToolUse"] as Array<Record<string, unknown>>;
+    const postToolUse = (settings["hooks"] as Record<string, unknown[]>)["PostToolUse"] as Array<
+      Record<string, unknown>
+    >;
 
     // Both the existing metadata-updater and our new inbox-reader should be present
     const commands = postToolUse.flatMap((e) =>
       ((e["hooks"] ?? []) as Array<Record<string, unknown>>).map((h) => h["command"]),
     );
     expect(commands).toContain(".claude/metadata-updater.sh");
-    expect(commands).toContain(".claude/ao-inbox-reader.sh");
+    expect(commands).toContain(".claude/ao-inbox-reader.sh PostToolUse");
   });
 
   it("handles corrupt existing settings.json gracefully", async () => {
@@ -140,17 +144,22 @@ describe("setupComms (claude-code)", () => {
     // Should not throw — rewrites with fresh config
     await expect(setupComms(workspaceDir, { hooks: true })).resolves.toBeUndefined();
 
-    const settings = JSON.parse(
-      readFileSync(join(claudeDir, "settings.json"), "utf-8"),
-    ) as Record<string, unknown>;
+    const settings = JSON.parse(readFileSync(join(claudeDir, "settings.json"), "utf-8")) as Record<
+      string,
+      unknown
+    >;
     expect(settings["hooks"]).toBeDefined();
   });
 });
 
 describe("setupComms flavors", () => {
   let workspaceDir: string;
-  beforeEach(() => { workspaceDir = mkdtempSync(join(tmpdir(), "ao-flavors-")); });
-  afterEach(() => { rmSync(workspaceDir, { recursive: true, force: true }); });
+  beforeEach(() => {
+    workspaceDir = mkdtempSync(join(tmpdir(), "ao-flavors-"));
+  });
+  afterEach(() => {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  });
 
   it("codex flavor installs .codex/ hook scripts and generic watcher", async () => {
     await setupComms(workspaceDir, { flavors: ["codex"] });

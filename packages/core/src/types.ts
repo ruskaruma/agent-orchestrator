@@ -210,11 +210,7 @@ export function isOrchestratorSession(
   if (allSessionPrefixes) {
     for (const prefix of allSessionPrefixes) {
       if (prefix === sessionPrefix) continue;
-      if (
-        new RegExp(
-          `^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-\\d+$`,
-        ).test(session.id)
-      ) {
+      if (new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-\\d+$`).test(session.id)) {
         return false;
       }
     }
@@ -290,10 +286,7 @@ export interface Runtime {
    *   to set up.
    * - Not replace the polling loop — this is additive for lower latency.
    */
-  watchEvents?(
-    handle: RuntimeHandle,
-    callback: (events: unknown[]) => void,
-  ): () => void;
+  watchEvents?(handle: RuntimeHandle, callback: (events: unknown[]) => void): () => void;
 
   writeSystemEvent?(
     handle: RuntimeHandle,
@@ -301,6 +294,8 @@ export interface Runtime {
     message: string,
     data?: Record<string, unknown>,
   ): Promise<void>;
+
+  ensureBackgroundProcesses?(handle: RuntimeHandle): Promise<void>;
 }
 
 export interface RuntimeCreateConfig {
@@ -688,7 +683,10 @@ export interface SCM {
    * @param observer - Optional observer for batch operation metrics
    * @returns Map keyed by "${owner}/${repo}#${number}" containing enrichment data
    */
-  enrichSessionsPRBatch?(prs: PRInfo[], observer?: BatchObserver): Promise<Map<string, PREnrichmentData>>;
+  enrichSessionsPRBatch?(
+    prs: PRInfo[],
+    observer?: BatchObserver,
+  ): Promise<Map<string, PREnrichmentData>>;
 }
 
 // --- PR Types ---

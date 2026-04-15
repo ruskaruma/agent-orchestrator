@@ -51,10 +51,18 @@ export function createCommsFiles(files: SessionCommsFiles): void {
       chmodSync(path, 0o666);
     }
   }
+  const cursorFile = `${files.inbox}.hook-cursor`;
+  if (!existsSync(cursorFile)) {
+    writeFileSync(cursorFile, "0", "utf-8");
+  }
 }
 
 export function removeCommsFiles(files: SessionCommsFiles): void {
-  try { rmSync(files.dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  try {
+    rmSync(files.dir, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
 }
 
 function atomicWrite(filePath: string, content: string): void {
@@ -80,21 +88,29 @@ export function appendMessage(
     try {
       const last = readFileSync(filePath, "utf-8").trimEnd().split("\n").pop();
       if (last) messageCounters.set(counterKey, (JSON.parse(last) as { id?: number }).id ?? 0);
-    } catch { /* empty/missing — start at 0 */ }
+    } catch {
+      /* empty/missing — start at 0 */
+    }
   }
   const nextId = (messageCounters.get(counterKey) ?? 0) + 1;
   messageCounters.set(counterKey, nextId);
 
   const entry: ProtocolMessage = {
-    v: 1, id: nextId, epoch,
+    v: 1,
+    id: nextId,
+    epoch,
     ts: new Date().toISOString(),
-    source, type, message,
+    source,
+    type,
+    message,
     ...extra,
   } as ProtocolMessage;
 
   const line = JSON.stringify(entry) + "\n";
   if (Buffer.byteLength(line, "utf-8") > 4096) {
-    throw new Error(`Message exceeds 4KB limit (${Buffer.byteLength(line, "utf-8")} bytes). Use a context file for larger payloads.`);
+    throw new Error(
+      `Message exceeds 4KB limit (${Buffer.byteLength(line, "utf-8")} bytes). Use a context file for larger payloads.`,
+    );
   }
   appendFileSync(filePath, line, { encoding: "utf-8", flag: "a" });
   return entry;
@@ -109,10 +125,16 @@ export function appendInboxMessage(
   dedup: string,
   data?: Record<string, unknown>,
 ): InboxMessage {
-  return appendMessage(inboxPath, sessionId, epoch, "orchestrator", type, message, { dedup, data }) as InboxMessage;
+  return appendMessage(inboxPath, sessionId, epoch, "orchestrator", type, message, {
+    dedup,
+    data,
+  }) as InboxMessage;
 }
 
-export function readNewMessages(filePath: string): { messages: ProtocolMessage[]; newCursor: number } {
+export function readNewMessages(filePath: string): {
+  messages: ProtocolMessage[];
+  newCursor: number;
+} {
   const cursorPath = filePath + CURSOR_SUFFIX;
 
   let cursor = 0;
@@ -120,16 +142,33 @@ export function readNewMessages(filePath: string): { messages: ProtocolMessage[]
     const raw = readFileSync(cursorPath, "utf-8").trim();
     const parsed = parseInt(raw, 10);
     if (!isNaN(parsed) && parsed >= 0) cursor = parsed;
-  } catch { /* no cursor file yet */ }
+  } catch {
+    /* no cursor file yet */
+  }
 
   let fd: number;
-  try { fd = openSync(filePath, "r"); } catch { return { messages: [], newCursor: cursor }; }
+  try {
+    fd = openSync(filePath, "r");
+  } catch {
+    return { messages: [], newCursor: cursor };
+  }
 
   let fileSize: number;
-  try { fileSize = fstatSync(fd).size; } catch { closeSync(fd); return { messages: [], newCursor: cursor }; }
+  try {
+    fileSize = fstatSync(fd).size;
+  } catch {
+    closeSync(fd);
+    return { messages: [], newCursor: cursor };
+  }
 
-  if (fileSize < cursor) { cursor = 0; atomicWrite(cursorPath, "0"); }
-  if (fileSize <= cursor) { closeSync(fd); return { messages: [], newCursor: cursor }; }
+  if (fileSize < cursor) {
+    cursor = 0;
+    atomicWrite(cursorPath, "0");
+  }
+  if (fileSize <= cursor) {
+    closeSync(fd);
+    return { messages: [], newCursor: cursor };
+  }
 
   const bytesToRead = Math.min(fileSize - cursor, 65536);
   const buf = Buffer.alloc(bytesToRead);
@@ -144,14 +183,20 @@ export function readNewMessages(filePath: string): { messages: ProtocolMessage[]
     const line = lines[i]!;
     if (i === lines.length - 1 && !line) break;
     const lineBytes = Buffer.byteLength(line + "\n", "utf-8");
-    if (!line.trim()) { bytesConsumed += lineBytes; continue; }
+    if (!line.trim()) {
+      bytesConsumed += lineBytes;
+      continue;
+    }
     try {
       messages.push(JSON.parse(line) as ProtocolMessage);
       bytesConsumed += lineBytes;
     } catch {
-      const isLast = i === lines.length - 1 || (i === lines.length - 2 && !lines[lines.length - 1]?.trim());
+      const isLast =
+        i === lines.length - 1 || (i === lines.length - 2 && !lines[lines.length - 1]?.trim());
       if (isLast) break;
-      console.warn(`[file-transport] Corrupt JSONL line skipped in ${filePath} at offset ${cursor + bytesConsumed}: ${line.slice(0, 100)}`);
+      console.warn(
+        `[file-transport] Corrupt JSONL line skipped in ${filePath} at offset ${cursor + bytesConsumed}: ${line.slice(0, 100)}`,
+      );
       bytesConsumed += lineBytes;
     }
   }
@@ -161,9 +206,14 @@ export function readNewMessages(filePath: string): { messages: ProtocolMessage[]
   return { messages, newCursor };
 }
 
-export interface FileWatcher { close(): void; }
+export interface FileWatcher {
+  close(): void;
+}
 
-export function watchDirectory(dirPath: string, handler: (filename: string | null) => void): FileWatcher {
+export function watchDirectory(
+  dirPath: string,
+  handler: (filename: string | null) => void,
+): FileWatcher {
   let nativeWatcher: FSWatcher | null = null;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let closed = false;
@@ -171,21 +221,37 @@ export function watchDirectory(dirPath: string, handler: (filename: string | nul
   function startPolling(): void {
     if (closed || pollTimer) return;
     let lastMtime = 0;
-    try { lastMtime = statSync(dirPath).mtimeMs; } catch { /* ignore */ }
+    try {
+      lastMtime = statSync(dirPath).mtimeMs;
+    } catch {
+      /* ignore */
+    }
     pollTimer = setInterval(() => {
       try {
         const mtime = statSync(dirPath).mtimeMs;
-        if (mtime > lastMtime) { lastMtime = mtime; handler(null); }
-      } catch { /* ignore */ }
+        if (mtime > lastMtime) {
+          lastMtime = mtime;
+          handler(null);
+        }
+      } catch {
+        /* ignore */
+      }
     }, 2000);
   }
 
   try {
     let fired = false;
-    nativeWatcher = watch(dirPath, { persistent: false }, (_e, f) => { fired = true; handler(f?.toString() ?? null); });
+    nativeWatcher = watch(dirPath, { persistent: false }, (_e, f) => {
+      fired = true;
+      handler(f?.toString() ?? null);
+    });
     nativeWatcher.on("error", () => {
       if (closed) return;
-      try { nativeWatcher?.close(); } catch { /* best effort */ }
+      try {
+        nativeWatcher?.close();
+      } catch {
+        /* best effort */
+      }
       nativeWatcher = null;
       startPolling();
     });
@@ -196,15 +262,33 @@ export function watchDirectory(dirPath: string, handler: (filename: string | nul
         const probe = join(dirPath, `.watch-probe-${process.pid}`);
         writeFileSync(probe, "t", "utf-8");
         rmSync(probe, { force: true });
-      } catch { /* ignore */ }
-      setTimeout(() => { if (!fired && !closed) { try { nativeWatcher?.close(); } catch { /* best effort */ } nativeWatcher = null; startPolling(); } }, 500);
+      } catch {
+        /* ignore */
+      }
+      setTimeout(() => {
+        if (!fired && !closed) {
+          try {
+            nativeWatcher?.close();
+          } catch {
+            /* best effort */
+          }
+          nativeWatcher = null;
+          startPolling();
+        }
+      }, 500);
     }, 1000);
-  } catch { startPolling(); }
+  } catch {
+    startPolling();
+  }
 
   return {
     close() {
       closed = true;
-      try { nativeWatcher?.close(); } catch { /* best effort */ }
+      try {
+        nativeWatcher?.close();
+      } catch {
+        /* best effort */
+      }
       if (pollTimer) clearInterval(pollTimer);
     },
   };
@@ -215,7 +299,9 @@ export function readEpoch(sessionsDir: string, sessionId: string): number {
     const raw = readFileSync(join(sessionsDir, sessionId, "comms", "epoch"), "utf-8").trim();
     const n = parseInt(raw, 10);
     return isNaN(n) ? 0 : n;
-  } catch { return 0; }
+  } catch {
+    return 0;
+  }
 }
 
 export function writeEpoch(sessionsDir: string, sessionId: string, epoch: number): void {

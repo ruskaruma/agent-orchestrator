@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -47,7 +47,7 @@ const AGENT_FLAVORS: Record<string, Flavor[]> = {
   aider: ["aider"],
 };
 
-const NEEDS_WATCHER: ReadonlySet<Flavor> = new Set(["codex", "cursor", "aider"]);
+const NEEDS_WATCHER: ReadonlySet<Flavor> = new Set(["claude-code", "codex", "cursor", "aider"]);
 const INJECT_FLAVORS: ReadonlySet<Flavor> = new Set(["cursor", "aider"]);
 
 function assertValidSessionId(id: string): void {
@@ -81,7 +81,10 @@ async function setupCommsForSession(
   try {
     await setupComms(workspacePath, { flavors });
   } catch (err) {
-    console.warn(`[runtime-tmux] comms setup failed:`, err instanceof Error ? err.message : String(err));
+    console.warn(
+      `[runtime-tmux] comms setup failed:`,
+      err instanceof Error ? err.message : String(err),
+    );
   }
   return files;
 }
@@ -114,7 +117,8 @@ export function create(): Runtime {
         tmuxEnv["AO_INBOX_PATH"] = files.inbox;
         tmuxEnv["AO_AGENT_EVENTS_PATH"] = files.agentEvents;
         tmuxEnv["AO_AGENT_EPOCH"] = String(readEpoch(sessionsDir, config.sessionId));
-        tmuxEnv["PATH"] = `${join(config.workspacePath, ".ao")}:${env["PATH"] ?? process.env.PATH ?? ""}`;
+        tmuxEnv["PATH"] =
+          `${join(config.workspacePath, ".ao")}:${env["PATH"] ?? process.env.PATH ?? ""}`;
       }
 
       const envArgs: string[] = [];
@@ -177,6 +181,7 @@ export function create(): Runtime {
           workspacePath: config.workspacePath,
           sessionsDir,
           sessionId: config.sessionId,
+          agentName,
           inboxPath: files?.inbox ?? "",
           agentEventsPath: files?.agentEvents ?? "",
         },
@@ -274,6 +279,44 @@ export function create(): Runtime {
       const epoch = readEpoch(sessionsDir, sessionId);
       try {
         appendMessage(files.systemEvents, sessionId, epoch, "system", type, message, data);
+      } catch {
+        // best effort
+      }
+    },
+
+    async ensureBackgroundProcesses(handle: RuntimeHandle): Promise<void> {
+      const agentName =
+        typeof handle.data["agentName"] === "string" ? handle.data["agentName"] : "";
+      const flavors: Flavor[] = AGENT_FLAVORS[agentName] ?? [];
+      if (!flavors.some((f) => NEEDS_WATCHER.has(f))) return;
+      const inboxPath = handle.data["inboxPath"] as string | undefined;
+      const wp = handle.data["workspacePath"] as string | undefined;
+      if (!inboxPath || !wp) return;
+      try {
+        await tmux("has-window", "-t", `${handle.id}:9`);
+        return;
+      } catch {
+        // window absent — fall through to spawn
+      }
+      const watcherScript = join(wp, ".ao", "ao-watcher.sh");
+      if (!existsSync(watcherScript)) return;
+      const mode = flavors.some((f) => INJECT_FLAVORS.has(f)) ? "inject" : "wake";
+      try {
+        await tmux(
+          "new-window",
+          "-t",
+          `${handle.id}:9`,
+          "-d",
+          "-n",
+          "ao-watcher",
+          "-e",
+          `AO_INBOX_PATH=${inboxPath}`,
+          "-e",
+          `AO_WAKE_TARGET=${handle.id}:0.0`,
+          "-e",
+          `AO_WAKE_MODE=${mode}`,
+          `bash ${shellEscape(watcherScript)}`,
+        );
       } catch {
         // best effort
       }

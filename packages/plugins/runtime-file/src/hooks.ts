@@ -37,19 +37,20 @@ fi
 
 echo "$delivered_size" > "$CURSOR_FILE"
 FMT="\${AO_HOOK_FORMAT:-claude}"
+EVENT="\${1:-PostToolUse}"
 if command -v jq &>/dev/null; then
   escaped=$(echo "$new_bytes" | jq -Rs '.')
   if [[ "$FMT" = "cursor" ]]; then
     echo "{\\"additional_context\\":$escaped}"
   else
-    echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"PostToolUse\\",\\"additionalContext\\":$escaped}}"
+    echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"$EVENT\\",\\"additionalContext\\":$escaped}}"
   fi
 else
   escaped=$(echo "$new_bytes" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g' | tr '\\n' ' ')
   if [[ "$FMT" = "cursor" ]]; then
     echo "{\\"additional_context\\":\\"$escaped\\"}"
   else
-    echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"PostToolUse\\",\\"additionalContext\\":\\"$escaped\\"}}"
+    echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"$EVENT\\",\\"additionalContext\\":\\"$escaped\\"}}"
   fi
 fi
 `;
@@ -172,7 +173,7 @@ mkdir "$LOCKDIR" 2>/dev/null || exit 0
 trap 'rmdir "$LOCKDIR" 2>/dev/null' EXIT
 
 size() { wc -c <"$F" 2>/dev/null | tr -d ' ' || echo 0; }
-last=$(size)
+last=$(grep -Eo '^[0-9]+' "\${F}.hook-cursor" 2>/dev/null || size)
 
 poke() {
   local cur; cur=$(size)
@@ -184,7 +185,7 @@ poke() {
       tmux send-keys -t "$T" Enter 2>/dev/null || true
     fi
   else
-    tmux send-keys -t "$T" Enter 2>/dev/null || true
+    tmux send-keys -t "$T" "check inbox" Enter 2>/dev/null || true
   fi
   last=$cur
 }
@@ -228,20 +229,21 @@ export default async ({ client }) => ({
 });
 `;
 
-const h = (cmd: string, timeout: number, extra?: Record<string, unknown>) =>
-  ({ hooks: [{ type: "command" as const, command: cmd, timeout, ...extra }] });
+const h = (cmd: string, timeout: number, extra?: Record<string, unknown>) => ({
+  hooks: [{ type: "command" as const, command: cmd, timeout, ...extra }],
+});
 
 export function getHookSettings(): Record<string, unknown> {
   return {
     hooks: {
       PostToolUse: [
-        h(".claude/ao-inbox-reader.sh", 5000),
+        h(".claude/ao-inbox-reader.sh PostToolUse", 5000),
         h(".claude/ao-inbox-watcher.sh", 60000, { async: true, asyncRewake: true }),
         { matcher: "Write|Edit|MultiEdit", ...h(".claude/ao-file-tracker.sh", 3000) },
       ],
-      FileChanged: [{ matcher: "inbox", ...h(".claude/ao-inbox-reader.sh", 5000) }],
+      FileChanged: [{ matcher: "inbox", ...h(".claude/ao-inbox-reader.sh PostToolUse", 5000) }],
       Stop: [h(".claude/ao-stop-check.sh", 5000)],
-      UserPromptSubmit: [{ matcher: "check inbox", ...h(".claude/ao-inbox-reader.sh", 5000) }],
+      UserPromptSubmit: [h(".claude/ao-inbox-reader.sh UserPromptSubmit", 5000)],
     },
   };
 }

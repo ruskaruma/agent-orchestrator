@@ -25,7 +25,6 @@ export {
   readEpoch,
   writeEpoch,
   generateDedupKey,
-
   readNewMessages,
   watchDirectory,
   type SessionCommsFiles,
@@ -65,7 +64,9 @@ async function installClaudeHooks(workspacePath: string): Promise<void> {
   if (existsSync(settingsPath)) {
     try {
       settings = JSON.parse(await readFile(settingsPath, "utf-8")) as Record<string, unknown>;
-    } catch { /* corrupt — start fresh */ }
+    } catch {
+      /* corrupt — start fresh */
+    }
   }
 
   const incoming = getHookSettings().hooks as Record<string, Array<Record<string, unknown>>>;
@@ -78,7 +79,9 @@ async function installClaudeHooks(workspacePath: string): Promise<void> {
       const command = hooks[0]?.["command"] as string | undefined;
       if (!command) continue;
       const already = existingEntries.some((e) =>
-        ((e["hooks"] ?? []) as Array<Record<string, unknown>>).some((h) => h["command"] === command),
+        ((e["hooks"] ?? []) as Array<Record<string, unknown>>).some(
+          (h) => h["command"] === command,
+        ),
       );
       if (!already) existingEntries.push(entry);
     }
@@ -142,7 +145,12 @@ async function installGenericWatcher(workspacePath: string): Promise<void> {
   await chmod(watcherPath, 0o755);
 }
 
-const NEEDS_GENERIC_WATCHER: ReadonlySet<Flavor> = new Set(["codex", "cursor", "aider"]);
+const NEEDS_GENERIC_WATCHER: ReadonlySet<Flavor> = new Set([
+  "claude-code",
+  "codex",
+  "cursor",
+  "aider",
+]);
 
 export async function setupComms(
   workspacePath: string,
